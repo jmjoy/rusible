@@ -1,0 +1,9 @@
+services:
+  sshd:
+    build:
+      context: .
+      dockerfile: docker/sshd/Dockerfile
+    container_name: rusible-sshd
+    ports:
+      - "2222:22"
+    restart: unless-stopped

@@ -1,0 +1,25 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "examples/*"]
+
+[workspace.package]
+authors = ["jmjoy <jmjoy@qq.com>"]
+edition = "2024"
+license = "MulanPSL-2.0"
+repository = "https://github.com/jmjoy/rusible"
+
+[workspace.dependencies]
+anyhow = "1.0.102"
+clap = { version = "4.5.40", features = ["derive"] }
+rusible = { path = "crates/rusible", version = "0.1.0" }
+rusible-exec = { path = "crates/rusible-exec", version = "0.1.0" }
+russh = "0.57.1"
+russh-sftp = "2.1.1"
+rusible-meta = { path = "crates/rusible-meta", version = "0.1.0" }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+sha2 = "0.10.9"
+thiserror = "2.0.12"
+tokio = { version = "1.45.1", features = ["fs", "io-util", "process", "rt-multi-thread"] }
+tracing = { version = "0.1.41", features = ["log"] }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt"] }

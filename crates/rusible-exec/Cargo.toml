@@ -1,0 +1,15 @@
+[package]
+name = "rusible-exec"
+version = "0.1.0"
+authors = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+description = "Task executor binary for applying Rusible tasks on a target host."
+readme = "README.md"
+
+[dependencies]
+clap = { workspace = true }
+rusible-meta = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
