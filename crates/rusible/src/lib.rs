@@ -2,11 +2,10 @@
 
 //! Controller-side runtime for executing Rusible tasks locally or over SSH.
 
-mod runtime;
+mod exec;
+pub mod inventory;
+pub mod report;
+pub mod runtime;
+pub mod target;
 
-pub use runtime::{
-    BatchRunError, BatchRunReport, Group, Host, Inventory, Local, LocalRunError,
-    InventoryLoadError, LocalRunReport, Remote, RemoteRunError, RemoteRunReport,
-    RunResultExt, Runnable, RuntimeError,
-};
-pub use rusible_meta::{FileState, FileTask, Task, TaskResult, TaskStatus, TemplateTask};
+pub use rusible_meta as meta;

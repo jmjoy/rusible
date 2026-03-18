@@ -1,4 +1,8 @@
-use rusible::{Inventory, Runnable as _, TemplateTask};
+use rusible::{
+    inventory::Inventory,
+    meta::TemplateTask,
+    runtime::Runnable as _,
+};
 use std::path::PathBuf;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
