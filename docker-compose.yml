@@ -3,7 +3,8 @@ services:
     build:
       context: .
       dockerfile: docker/sshd/Dockerfile
-    container_name: rusible-sshd
     ports:
-      - "2222:22"
+      - "2222-2224:22" 
     restart: unless-stopped
+    deploy:
+      replicas: 3

@@ -5,6 +5,8 @@
 mod runtime;
 
 pub use runtime::{
-    BatchRunReport, Error, Local, LocalRunReport, Remote, RemoteRunReport, Runnable,
+    BatchRunError, BatchRunReport, Group, Host, Inventory, Local, LocalRunError,
+    InventoryLoadError, LocalRunReport, Remote, RemoteRunError, RemoteRunReport,
+    RunResultExt, Runnable, RuntimeError,
 };
 pub use rusible_meta::{FileState, FileTask, Task, TaskResult, TaskStatus, TemplateTask};

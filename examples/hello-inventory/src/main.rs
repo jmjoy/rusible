@@ -1,5 +1,4 @@
-use rusible::{Remote, TemplateTask};
-use rusible::Runnable as _;
+use rusible::{Inventory, Runnable as _, TemplateTask};
 use std::path::PathBuf;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -15,17 +14,23 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let mut remotes = vec![
-        Remote::new("127.0.0.1", 2222, "root", Some("123456".into()), None),
-        Remote::new("127.0.0.1", 2223, "root", Some("123456".into()), None),
-        Remote::new("127.0.0.1", 2224, "root", Some("123456".into()), None),
-    ];
-    remotes.init(RUSIBLE_EXEC_BYTES).await?;
+    let inventory_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("inventory.toml");
+    let mut inventory = Inventory::from_toml_path(&inventory_path)
+        .await?
+        .filter_by_group("web");
 
-    let report = remotes
+    info!(
+        inventory = %inventory_path.display(),
+        selected_hosts = inventory.len(),
+        "loaded inventory and selected hosts"
+    );
+
+    inventory.init(RUSIBLE_EXEC_BYTES).await?;
+
+    let report = inventory
         .run(TemplateTask {
-            dest: PathBuf::from("/tmp/hello-world.txt"),
-            content: "hello world from rusible\n".to_string(),
+            dest: PathBuf::from("/tmp/hello-inventory.txt"),
+            content: "hello from inventory.toml\n".to_string(),
             owner: None,
             group: None,
             mode: Some("0644".to_string()),

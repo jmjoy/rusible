@@ -23,6 +23,15 @@ This workspace expects Cargo commands to run with `-Z bindeps`.
 cargo -Z bindeps check
 ```
 
+## Runtime behavior
+
+`Runnable::run` now returns an error when a task result contains `failed` or
+`unreachable`.
+
+If you want to recover the report or relax that default, import
+`RunResultExt` and use helpers such as `into_report`, `ignore_unreachable`, and
+`fail_on_skipped`.
+
 ## License
 
 Licensed under Mulan PSL v2.

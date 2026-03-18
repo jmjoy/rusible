@@ -1,0 +1,40 @@
+[[groups]]
+name = "prod"
+children = ["web", "db"]
+
+[[groups]]
+name = "ops"
+children = ["monitoring"]
+
+[[groups]]
+name = "web"
+
+[[groups]]
+name = "db"
+
+[[groups]]
+name = "monitoring"
+
+[[hosts]]
+name = "web-1"
+host = "127.0.0.1"
+port = 2222
+user = "root"
+password = "123456"
+groups = ["web"]
+
+[[hosts]]
+name = "db-1"
+host = "127.0.0.1"
+port = 2223
+user = "root"
+password = "123456"
+groups = ["db"]
+
+[[hosts]]
+name = "ops-1"
+host = "127.0.0.1"
+port = 2224
+user = "root"
+password = "123456"
+groups = ["web", "monitoring"]
