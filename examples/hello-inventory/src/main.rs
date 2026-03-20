@@ -41,7 +41,7 @@ async fn main() -> anyhow::Result<()> {
         })
         .await?;
 
-    for result in report.results {
+    for result in report.0 {
         info!(
             host = %result.host,
             exec_path = %result.exec_path,

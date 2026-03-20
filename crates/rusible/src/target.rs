@@ -196,7 +196,7 @@ where
 
         info!(remote_count = results.len(), "batch task finished");
 
-        let report = BatchRunReport { results }.try_into_typed::<T>()?;
+        let report = BatchRunReport(results).try_into_typed::<T>()?;
         classify_report(report)
     }
 }
@@ -247,7 +247,7 @@ impl Runnable for Inventory {
 
         info!(host_count = results.len(), "inventory task finished");
 
-        let report = BatchRunReport { results }.try_into_typed::<T>()?;
+        let report = BatchRunReport(results).try_into_typed::<T>()?;
         classify_report(report)
     }
 }

@@ -18,9 +18,7 @@ pub struct RemoteRunReport<D = TaskDetails> {
 
 /// Aggregated results from multiple remote hosts.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BatchRunReport<D = TaskDetails> {
-    pub results: Vec<RemoteRunReport<D>>,
-}
+pub struct BatchRunReport<D = TaskDetails>(pub Vec<RemoteRunReport<D>>);
 
 /// Infrastructure error returned while preparing or executing a run.
 #[derive(Debug, thiserror::Error)]
@@ -267,13 +265,12 @@ impl BatchRunReport<TaskDetails> {
     where
         T: TaskSpec,
     {
-        Ok(BatchRunReport {
-            results: self
-                .results
+        Ok(BatchRunReport(
+            self.0
                 .into_iter()
                 .map(RemoteRunReport::try_into_typed::<T>)
                 .collect::<Result<Vec<_>, _>>()?,
-        })
+        ))
     }
 }
 
@@ -291,7 +288,7 @@ impl<D> RunReportLike for RemoteRunReport<D> {
 
 impl<D> RunReportLike for BatchRunReport<D> {
     fn has_status(&self, status: TaskStatus) -> bool {
-        self.results.iter().any(|report| report.result.status == status)
+        self.0.iter().any(|report| report.result.status == status)
     }
 }
 
@@ -408,7 +405,7 @@ fn format_remote_report<D>(report: &RemoteRunReport<D>) -> String {
 
 fn format_batch_report<D>(report: &BatchRunReport<D>) -> String {
     let statuses = report
-        .results
+        .0
         .iter()
         .filter(|report| {
             matches!(
@@ -457,8 +454,8 @@ mod tests {
     }
 
     fn batch_report(statuses: &[TaskStatus]) -> BatchRunReport {
-        BatchRunReport {
-            results: statuses
+        BatchRunReport(
+            statuses
                 .iter()
                 .enumerate()
                 .map(|(index, status)| RemoteRunReport {
@@ -471,7 +468,7 @@ mod tests {
                     },
                 })
                 .collect(),
-        }
+        )
     }
 
     fn status_name(status: TaskStatus) -> &'static str {
