@@ -1,25 +1,25 @@
-use crate::meta::{TaskResult, TaskStatus};
+use crate::meta::{TaskDetails, TaskResult, TaskSpec, TaskStatus};
 use std::{backtrace::Backtrace, path::PathBuf};
 
 /// Result of a task run on the local controller.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalRunReport {
+pub struct LocalRunReport<D = TaskDetails> {
     pub exec_path: PathBuf,
-    pub result: TaskResult,
+    pub result: TaskResult<D>,
 }
 
 /// Result of a task run on a remote host.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RemoteRunReport {
+pub struct RemoteRunReport<D = TaskDetails> {
     pub host: String,
     pub exec_path: String,
-    pub result: TaskResult,
+    pub result: TaskResult<D>,
 }
 
 /// Aggregated results from multiple remote hosts.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BatchRunReport {
-    pub results: Vec<RemoteRunReport>,
+pub struct BatchRunReport<D = TaskDetails> {
+    pub results: Vec<RemoteRunReport<D>>,
 }
 
 /// Infrastructure error returned while preparing or executing a run.
@@ -99,36 +99,43 @@ pub enum RuntimeError {
 
     #[error("runnable has not been initialized with rusible-exec bytes")]
     NotInitialized { backtrace: Backtrace },
+
+    #[error("task returned unexpected details kind `{actual}`; expected `{expected}`")]
+    UnexpectedTaskDetails {
+        expected: &'static str,
+        actual: &'static str,
+        backtrace: Backtrace,
+    },
 }
 
 /// Error returned when a local task run does not succeed.
 #[derive(Debug, thiserror::Error)]
-pub enum LocalRunError {
+pub enum LocalRunError<D = TaskDetails> {
     #[error("{0}")]
     Runtime(#[from] RuntimeError),
 
     #[error("local task returned a non-success status: {}", format_local_report(.0))]
-    Report(LocalRunReport),
+    Report(LocalRunReport<D>),
 }
 
 /// Error returned when a single remote task run does not succeed.
 #[derive(Debug, thiserror::Error)]
-pub enum RemoteRunError {
+pub enum RemoteRunError<D = TaskDetails> {
     #[error("{0}")]
     Runtime(#[from] RuntimeError),
 
     #[error("remote task returned a non-success status: {}", format_remote_report(.0))]
-    Report(RemoteRunReport),
+    Report(RemoteRunReport<D>),
 }
 
 /// Error returned when a batch remote task run contains non-success results.
 #[derive(Debug, thiserror::Error)]
-pub enum BatchRunError {
+pub enum BatchRunError<D = TaskDetails> {
     #[error("{0}")]
     Runtime(#[from] RuntimeError),
 
     #[error("batch task returned non-success statuses: {}", format_batch_report(.0))]
-    Report(BatchRunReport),
+    Report(BatchRunReport<D>),
 }
 
 /// Helper methods for the results returned by `Runnable::run`.
@@ -230,41 +237,81 @@ where
     }
 }
 
-impl RunReportLike for LocalRunReport {
+impl LocalRunReport<TaskDetails> {
+    pub(crate) fn try_into_typed<T>(self) -> Result<LocalRunReport<T::Details>, RuntimeError>
+    where
+        T: TaskSpec,
+    {
+        Ok(LocalRunReport {
+            exec_path: self.exec_path,
+            result: self.result.try_map_details(|details| typed_details::<T>(details))?,
+        })
+    }
+}
+
+impl RemoteRunReport<TaskDetails> {
+    pub(crate) fn try_into_typed<T>(self) -> Result<RemoteRunReport<T::Details>, RuntimeError>
+    where
+        T: TaskSpec,
+    {
+        Ok(RemoteRunReport {
+            host: self.host,
+            exec_path: self.exec_path,
+            result: self.result.try_map_details(|details| typed_details::<T>(details))?,
+        })
+    }
+}
+
+impl BatchRunReport<TaskDetails> {
+    pub(crate) fn try_into_typed<T>(self) -> Result<BatchRunReport<T::Details>, RuntimeError>
+    where
+        T: TaskSpec,
+    {
+        Ok(BatchRunReport {
+            results: self
+                .results
+                .into_iter()
+                .map(RemoteRunReport::try_into_typed::<T>)
+                .collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+}
+
+impl<D> RunReportLike for LocalRunReport<D> {
     fn has_status(&self, status: TaskStatus) -> bool {
         self.result.status == status
     }
 }
 
-impl RunReportLike for RemoteRunReport {
+impl<D> RunReportLike for RemoteRunReport<D> {
     fn has_status(&self, status: TaskStatus) -> bool {
         self.result.status == status
     }
 }
 
-impl RunReportLike for BatchRunReport {
+impl<D> RunReportLike for BatchRunReport<D> {
     fn has_status(&self, status: TaskStatus) -> bool {
         self.results.iter().any(|report| report.result.status == status)
     }
 }
 
-impl ReportBackedError<LocalRunReport> for LocalRunError {
+impl<D> ReportBackedError<LocalRunReport<D>> for LocalRunError<D> {
     fn from_runtime_error(error: RuntimeError) -> Self {
         Self::Runtime(error)
     }
 
-    fn from_report(report: LocalRunReport) -> Self {
+    fn from_report(report: LocalRunReport<D>) -> Self {
         Self::Report(report)
     }
 
-    fn report(&self) -> Option<&LocalRunReport> {
+    fn report(&self) -> Option<&LocalRunReport<D>> {
         match self {
             Self::Runtime(_) => None,
             Self::Report(report) => Some(report),
         }
     }
 
-    fn into_report(self) -> Result<LocalRunReport, RuntimeError> {
+    fn into_report(self) -> Result<LocalRunReport<D>, RuntimeError> {
         match self {
             Self::Runtime(error) => Err(error),
             Self::Report(report) => Ok(report),
@@ -272,23 +319,23 @@ impl ReportBackedError<LocalRunReport> for LocalRunError {
     }
 }
 
-impl ReportBackedError<RemoteRunReport> for RemoteRunError {
+impl<D> ReportBackedError<RemoteRunReport<D>> for RemoteRunError<D> {
     fn from_runtime_error(error: RuntimeError) -> Self {
         Self::Runtime(error)
     }
 
-    fn from_report(report: RemoteRunReport) -> Self {
+    fn from_report(report: RemoteRunReport<D>) -> Self {
         Self::Report(report)
     }
 
-    fn report(&self) -> Option<&RemoteRunReport> {
+    fn report(&self) -> Option<&RemoteRunReport<D>> {
         match self {
             Self::Runtime(_) => None,
             Self::Report(report) => Some(report),
         }
     }
 
-    fn into_report(self) -> Result<RemoteRunReport, RuntimeError> {
+    fn into_report(self) -> Result<RemoteRunReport<D>, RuntimeError> {
         match self {
             Self::Runtime(error) => Err(error),
             Self::Report(report) => Ok(report),
@@ -296,23 +343,23 @@ impl ReportBackedError<RemoteRunReport> for RemoteRunError {
     }
 }
 
-impl ReportBackedError<BatchRunReport> for BatchRunError {
+impl<D> ReportBackedError<BatchRunReport<D>> for BatchRunError<D> {
     fn from_runtime_error(error: RuntimeError) -> Self {
         Self::Runtime(error)
     }
 
-    fn from_report(report: BatchRunReport) -> Self {
+    fn from_report(report: BatchRunReport<D>) -> Self {
         Self::Report(report)
     }
 
-    fn report(&self) -> Option<&BatchRunReport> {
+    fn report(&self) -> Option<&BatchRunReport<D>> {
         match self {
             Self::Runtime(_) => None,
             Self::Report(report) => Some(report),
         }
     }
 
-    fn into_report(self) -> Result<BatchRunReport, RuntimeError> {
+    fn into_report(self) -> Result<BatchRunReport<D>, RuntimeError> {
         match self {
             Self::Runtime(error) => Err(error),
             Self::Report(report) => Ok(report),
@@ -339,15 +386,27 @@ where
     report.has_status(TaskStatus::Unreachable) && !report.has_status(TaskStatus::Failed)
 }
 
-fn format_local_report(report: &LocalRunReport) -> String {
+fn typed_details<T>(details: TaskDetails) -> Result<T::Details, RuntimeError>
+where
+    T: TaskSpec,
+{
+    let actual = details.kind();
+    T::try_from_details(details).ok_or_else(|| RuntimeError::UnexpectedTaskDetails {
+        expected: T::expected_task_kind(),
+        actual,
+        backtrace: Backtrace::capture(),
+    })
+}
+
+fn format_local_report<D>(report: &LocalRunReport<D>) -> String {
     format_task_result(&report.result)
 }
 
-fn format_remote_report(report: &RemoteRunReport) -> String {
+fn format_remote_report<D>(report: &RemoteRunReport<D>) -> String {
     format!("{} [{}]", report.host, format_task_result(&report.result))
 }
 
-fn format_batch_report(report: &BatchRunReport) -> String {
+fn format_batch_report<D>(report: &BatchRunReport<D>) -> String {
     let statuses = report
         .results
         .iter()
@@ -367,7 +426,7 @@ fn format_batch_report(report: &BatchRunReport) -> String {
     }
 }
 
-fn format_task_result(result: &TaskResult) -> String {
+fn format_task_result<D>(result: &TaskResult<D>) -> String {
     let status = match result.status {
         TaskStatus::Ok => "ok",
         TaskStatus::Changed => "changed",
@@ -392,6 +451,7 @@ mod tests {
             result: TaskResult {
                 status,
                 message: Some(status_name(status).to_string()),
+                details: None,
             },
         }
     }
@@ -407,6 +467,7 @@ mod tests {
                     result: TaskResult {
                         status: *status,
                         message: Some(status_name(*status).to_string()),
+                        details: None,
                     },
                 })
                 .collect(),

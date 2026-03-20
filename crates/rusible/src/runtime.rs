@@ -1,14 +1,16 @@
 //! Controller-side runtime for executing Rusible tasks locally or over SSH.
 
-use crate::meta::Task;
+use crate::meta::TaskSpec;
 use std::{future::Future, path::PathBuf};
 use tokio::fs;
 
 /// Executes tasks on a controller target.
 pub trait Runnable {
-    type Output;
+    /// Report type returned for a specific task details payload.
+    type Output<D>;
     type InitError;
-    type RunError;
+    /// Error type returned for a specific task details payload.
+    type RunError<D>;
 
     /// Reads a `rusible-exec` binary from disk and prepares it for later task
     /// execution.
@@ -42,8 +44,8 @@ pub trait Runnable {
     fn run<T>(
         &mut self,
         task: T,
-    ) -> impl Future<Output = Result<Self::Output, Self::RunError>> + Send
+    ) -> impl Future<Output = Result<Self::Output<T::Details>, Self::RunError<T::Details>>> + Send
     where
         Self: Send,
-        T: Into<Task> + Send;
+        T: TaskSpec + Send;
 }

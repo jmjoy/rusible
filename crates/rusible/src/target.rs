@@ -5,7 +5,7 @@ use crate::{
         validate_remote_exec,
     },
     inventory::Inventory,
-    meta::{Task, TaskResult},
+    meta::{TaskResult, TaskSpec},
     report::{
         classify_report, BatchRunError, BatchRunReport, LocalRunError, LocalRunReport,
         RemoteRunError, RemoteRunReport, RuntimeError,
@@ -70,9 +70,9 @@ impl Remote {
 }
 
 impl Runnable for Local {
+    type Output<D> = LocalRunReport<D>;
     type InitError = RuntimeError;
-    type RunError = LocalRunError;
-    type Output = LocalRunReport;
+    type RunError<D> = LocalRunError<D>;
 
     async fn init(&mut self, exec_bytes: &[u8]) -> Result<(), Self::InitError> {
         let exec_path = ensure_local_exec(exec_bytes).await?;
@@ -82,9 +82,9 @@ impl Runnable for Local {
         Ok(())
     }
 
-    async fn run<T>(&mut self, task: T) -> Result<Self::Output, Self::RunError>
+    async fn run<T>(&mut self, task: T) -> Result<Self::Output<T::Details>, Self::RunError<T::Details>>
     where
-        T: Into<Task> + Send,
+        T: TaskSpec + Send,
     {
         let task = task.into();
         let exec_path = self.exec_path.clone().ok_or_else(|| RuntimeError::NotInitialized {
@@ -94,14 +94,15 @@ impl Runnable for Local {
         let result = run_exec_process(&exec_path, &task).await?;
         info!(exec_path = %exec_path.display(), status = ?result.status, "local task finished");
 
-        classify_report(LocalRunReport { exec_path, result })
+        let report = LocalRunReport { exec_path, result }.try_into_typed::<T>()?;
+        classify_report(report)
     }
 }
 
 impl Runnable for Remote {
+    type Output<D> = RemoteRunReport<D>;
     type InitError = RuntimeError;
-    type RunError = RemoteRunError;
-    type Output = RemoteRunReport;
+    type RunError<D> = RemoteRunError<D>;
 
     async fn init(&mut self, exec_bytes: &[u8]) -> Result<(), Self::InitError> {
         let remote_exec_path = initialize_remote_exec(self, exec_bytes).await?;
@@ -111,9 +112,9 @@ impl Runnable for Remote {
         Ok(())
     }
 
-    async fn run<T>(&mut self, task: T) -> Result<Self::Output, Self::RunError>
+    async fn run<T>(&mut self, task: T) -> Result<Self::Output<T::Details>, Self::RunError<T::Details>>
     where
-        T: Into<Task> + Send,
+        T: TaskSpec + Send,
     {
         let task = task.into();
         let exec_path = self
@@ -133,11 +134,14 @@ impl Runnable for Remote {
         };
         info!(host = %self.host, port = self.port, exec_path = %exec_path, status = ?result.status, "remote task finished");
 
-        classify_report(RemoteRunReport {
+        let report = RemoteRunReport {
             host: self.host.clone(),
             exec_path,
             result,
-        })
+        }
+        .try_into_typed::<T>()?;
+
+        classify_report(report)
     }
 }
 
@@ -145,9 +149,9 @@ impl<I> Runnable for I
 where
     I: Clone + IntoIterator<Item = Remote> + FromIterator<Remote> + Send,
 {
+    type Output<D> = BatchRunReport<D>;
     type InitError = RuntimeError;
-    type RunError = BatchRunError;
-    type Output = BatchRunReport;
+    type RunError<D> = BatchRunError<D>;
 
     async fn init(&mut self, exec_bytes: &[u8]) -> Result<(), Self::InitError> {
         let remotes = self.clone().into_iter().collect::<Vec<_>>();
@@ -164,9 +168,9 @@ where
         Ok(())
     }
 
-    async fn run<T>(&mut self, task: T) -> Result<Self::Output, Self::RunError>
+    async fn run<T>(&mut self, task: T) -> Result<Self::Output<T::Details>, Self::RunError<T::Details>>
     where
-        T: Into<Task> + Send,
+        T: TaskSpec + Send,
     {
         let task = task.into();
         let task_json = serde_json::to_string(&task).map_err(RuntimeError::from)?;
@@ -192,14 +196,15 @@ where
 
         info!(remote_count = results.len(), "batch task finished");
 
-        classify_report(BatchRunReport { results })
+        let report = BatchRunReport { results }.try_into_typed::<T>()?;
+        classify_report(report)
     }
 }
 
 impl Runnable for Inventory {
+    type Output<D> = BatchRunReport<D>;
     type InitError = RuntimeError;
-    type RunError = BatchRunError;
-    type Output = BatchRunReport;
+    type RunError<D> = BatchRunError<D>;
 
     async fn init(&mut self, exec_bytes: &[u8]) -> Result<(), Self::InitError> {
         let host_count = self.len();
@@ -212,9 +217,9 @@ impl Runnable for Inventory {
         Ok(())
     }
 
-    async fn run<T>(&mut self, task: T) -> Result<Self::Output, Self::RunError>
+    async fn run<T>(&mut self, task: T) -> Result<Self::Output<T::Details>, Self::RunError<T::Details>>
     where
-        T: Into<Task> + Send,
+        T: TaskSpec + Send,
     {
         let task = task.into();
         let task_json = serde_json::to_string(&task).map_err(RuntimeError::from)?;
@@ -242,6 +247,7 @@ impl Runnable for Inventory {
 
         info!(host_count = results.len(), "inventory task finished");
 
-        classify_report(BatchRunReport { results })
+        let report = BatchRunReport { results }.try_into_typed::<T>()?;
+        classify_report(report)
     }
 }

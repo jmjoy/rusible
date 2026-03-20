@@ -25,6 +25,18 @@ impl From<TemplateTask> for Task {
     }
 }
 
+/// Associates a task type with the structured details it returns.
+pub trait TaskSpec: Into<Task> {
+    /// Structured task-specific details returned for this task type.
+    type Details;
+
+    /// Converts dynamically tagged details into this task's typed details.
+    fn try_from_details(details: TaskDetails) -> Option<Self::Details>;
+
+    /// Returns the serialized task kind expected by this task type.
+    fn expected_task_kind() -> &'static str;
+}
+
 /// File task parameters modelled after Ansible's file module.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileTask {
@@ -53,6 +65,48 @@ pub struct TemplateTask {
     pub mode: Option<String>,
 }
 
+impl TaskSpec for Task {
+    type Details = TaskDetails;
+
+    fn try_from_details(details: TaskDetails) -> Option<Self::Details> {
+        Some(details)
+    }
+
+    fn expected_task_kind() -> &'static str {
+        "task"
+    }
+}
+
+impl TaskSpec for FileTask {
+    type Details = FileDetails;
+
+    fn try_from_details(details: TaskDetails) -> Option<Self::Details> {
+        match details {
+            TaskDetails::File(details) => Some(details),
+            TaskDetails::Template(_) => None,
+        }
+    }
+
+    fn expected_task_kind() -> &'static str {
+        "file"
+    }
+}
+
+impl TaskSpec for TemplateTask {
+    type Details = TemplateDetails;
+
+    fn try_from_details(details: TaskDetails) -> Option<Self::Details> {
+        match details {
+            TaskDetails::File(_) => None,
+            TaskDetails::Template(details) => Some(details),
+        }
+    }
+
+    fn expected_task_kind() -> &'static str {
+        "template"
+    }
+}
+
 /// Desired file-system state for a file task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -61,6 +115,57 @@ pub enum FileState {
     Directory,
     File,
     Touch,
+}
+
+/// Task-specific details returned by the executor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TaskDetails {
+    /// Details produced by a file task.
+    File(FileDetails),
+    /// Details produced by a template task.
+    Template(TemplateDetails),
+}
+
+impl TaskDetails {
+    /// Returns the serialized task kind for these details.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::File(_) => "file",
+            Self::Template(_) => "template",
+        }
+    }
+}
+
+/// Structured details for a file task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileDetails {
+    pub path: PathBuf,
+    pub state: FileState,
+    #[serde(default)]
+    pub created: bool,
+    #[serde(default)]
+    pub removed: bool,
+    #[serde(default)]
+    pub content_changed: bool,
+    #[serde(default)]
+    pub mode_changed: bool,
+    #[serde(default)]
+    pub ownership_changed: bool,
+}
+
+/// Structured details for a template task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TemplateDetails {
+    pub dest: PathBuf,
+    #[serde(default)]
+    pub created: bool,
+    #[serde(default)]
+    pub content_changed: bool,
+    #[serde(default)]
+    pub mode_changed: bool,
+    #[serde(default)]
+    pub ownership_changed: bool,
 }
 
 /// High-level execution status returned by `rusible-exec` and the controller.
@@ -76,17 +181,20 @@ pub enum TaskStatus {
 
 /// Structured task result payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TaskResult {
+pub struct TaskResult<D = TaskDetails> {
     pub status: TaskStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<D>,
 }
 
-impl TaskResult {
+impl<D> TaskResult<D> {
     pub fn ok(message: impl Into<String>) -> Self {
         Self {
             status: TaskStatus::Ok,
             message: Some(message.into()),
+            details: None,
         }
     }
 
@@ -94,6 +202,7 @@ impl TaskResult {
         Self {
             status: TaskStatus::Changed,
             message: Some(message.into()),
+            details: None,
         }
     }
 
@@ -101,6 +210,7 @@ impl TaskResult {
         Self {
             status: TaskStatus::Skipped,
             message: Some(message.into()),
+            details: None,
         }
     }
 
@@ -108,6 +218,7 @@ impl TaskResult {
         Self {
             status: TaskStatus::Failed,
             message: Some(message.into()),
+            details: None,
         }
     }
 
@@ -115,7 +226,26 @@ impl TaskResult {
         Self {
             status: TaskStatus::Unreachable,
             message: Some(message.into()),
+            details: None,
         }
+    }
+
+    /// Attaches structured task details to the result.
+    pub fn with_details(mut self, details: D) -> Self {
+        self.details = Some(details);
+        self
+    }
+
+    /// Converts the details payload while preserving status and message.
+    pub fn try_map_details<U, E>(self, f: impl FnOnce(D) -> Result<U, E>) -> Result<TaskResult<U>, E> {
+        Ok(TaskResult {
+            status: self.status,
+            message: self.message,
+            details: match self.details {
+                Some(details) => Some(f(details)?),
+                None => None,
+            },
+        })
     }
 }
 
@@ -138,6 +268,24 @@ mod tests {
         let decoded: Task = serde_json::from_str(&json).unwrap();
 
         assert_eq!(decoded, task);
+    }
+
+    #[test]
+    fn task_result_with_details_round_trips_as_json() {
+        let result = TaskResult::changed("updated").with_details(TaskDetails::File(FileDetails {
+            path: PathBuf::from("/tmp/example"),
+            state: FileState::File,
+            created: true,
+            removed: false,
+            content_changed: true,
+            mode_changed: false,
+            ownership_changed: false,
+        }));
+
+        let json = serde_json::to_string(&result).unwrap();
+        let decoded: TaskResult = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(decoded, result);
     }
 
     #[test]
@@ -167,5 +315,20 @@ mod tests {
         .into();
 
         assert!(matches!(task, Task::Template(_)));
+    }
+
+    #[test]
+    fn file_task_spec_extracts_file_details() {
+        let details = FileTask::try_from_details(TaskDetails::File(FileDetails {
+            path: PathBuf::from("/tmp/example"),
+            state: FileState::Touch,
+            created: false,
+            removed: false,
+            content_changed: false,
+            mode_changed: true,
+            ownership_changed: false,
+        }));
+
+        assert!(matches!(details, Some(FileDetails { mode_changed: true, .. })));
     }
 }
