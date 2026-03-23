@@ -1,11 +1,12 @@
 use super::{TaskDetails, TaskSpec};
+use rusible_template::TemplatedPath;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CopyTask {
-    pub src: PathBuf,
-    pub dest: PathBuf,
+    pub src: TemplatedPath,
+    pub dest: TemplatedPath,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

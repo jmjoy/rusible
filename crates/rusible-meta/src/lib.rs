@@ -2,6 +2,7 @@
 
 mod task;
 
+pub use rusible_template::{TemplatedPath, TemplatedString, TemplatedUrl};
 pub use task::{
 	DownloadDetails, DownloadTask,
 	CommandDetails, CommandTask, CopyDetails, CopyTask, FileDetails, FileState,

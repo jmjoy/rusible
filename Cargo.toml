@@ -15,6 +15,7 @@ minijinja = "2.12.0"
 reqwest = { version = "0.12.15", default-features = false }
 rusible = { path = "crates/rusible", version = "0.1.0" }
 rusible-exec = { path = "crates/rusible-exec", version = "0.1.0" }
+rusible-template = { path = "crates/rusible-template", version = "0.1.0" }
 russh = "0.57.1"
 russh-sftp = "2.1.1"
 rusible-meta = { path = "crates/rusible-meta", version = "0.1.0" }

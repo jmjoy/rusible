@@ -1,6 +1,3 @@
-use crate::report::RuntimeError;
-use minijinja::{Environment, UndefinedBehavior};
-use std::backtrace::Backtrace;
 use toml::{Table, Value};
 
 /// Error returned when manipulating controller-side template variables.
@@ -170,22 +167,6 @@ pub(crate) fn build_remote_context(
         Value::Table(remote_namespace(host_name, host, port, user)),
     );
     context
-}
-
-pub(crate) fn render_template(template: &str, context: &Table) -> Result<String, RuntimeError> {
-    let mut environment = Environment::new();
-    environment.set_undefined_behavior(UndefinedBehavior::Strict);
-    let compiled = environment.template_from_str(template).map_err(|source| {
-        RuntimeError::TemplateRender {
-            message: source.to_string(),
-            backtrace: Backtrace::capture(),
-        }
-    })?;
-
-    compiled.render(context).map_err(|source| RuntimeError::TemplateRender {
-        message: source.to_string(),
-        backtrace: Backtrace::capture(),
-    })
 }
 
 fn parse_path(path: &str) -> Result<Vec<&str>, VarError> {

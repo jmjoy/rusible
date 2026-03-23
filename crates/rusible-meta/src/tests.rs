@@ -109,8 +109,8 @@ fn command_task_converts_into_task() {
 #[test]
 fn copy_task_converts_into_task() {
     let task: Task = CopyTask {
-        src: PathBuf::from("/tmp/src"),
-        dest: PathBuf::from("/tmp/dest"),
+        src: PathBuf::from("/tmp/src").into(),
+        dest: PathBuf::from("/tmp/dest").into(),
         owner: None,
         group: None,
         mode: Some("0755".to_string()),
@@ -124,7 +124,7 @@ fn copy_task_converts_into_task() {
 fn download_task_converts_into_task() {
     let task: Task = DownloadTask {
         url: "https://example.com/archive.tar.gz".to_string(),
-        dest: PathBuf::from("/tmp/archive.tar.gz"),
+        dest: PathBuf::from("/tmp/archive.tar.gz").into(),
         force: false,
         owner: None,
         group: None,
@@ -133,6 +133,21 @@ fn download_task_converts_into_task() {
     .into();
 
     assert!(matches!(task, Task::Download(_)));
+}
+
+#[test]
+fn template_path_round_trips_as_json() {
+    let literal = TemplatedPath::from(PathBuf::from("/tmp/example"));
+    let templated = TemplatedPath::new("{{ app.dir }}/example");
+
+    let literal_json = serde_json::to_string(&literal).unwrap();
+    let templated_json = serde_json::to_string(&templated).unwrap();
+
+    assert_eq!(serde_json::from_str::<TemplatedPath>(&literal_json).unwrap(), literal);
+    assert_eq!(
+        serde_json::from_str::<TemplatedPath>(&templated_json).unwrap(),
+        templated
+    );
 }
 
 #[test]

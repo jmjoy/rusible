@@ -7,7 +7,7 @@ use rusible::{
     },
     runtime::Runnable as _,
     target::Local,
-    TemplatePath, UploadOptions,
+    TemplatedPath, UploadOptions,
 };
 use std::{
     env::temp_dir,
@@ -332,7 +332,7 @@ async fn install_etcd_runtime(
             url: format!(
                 "https://github.com/etcd-io/etcd/releases/download/{version}/etcd-{version}-linux-amd64.tar.gz"
             ),
-            dest: local_archive_path.clone(),
+            dest: local_archive_path.clone().into(),
             force: false,
             owner: None,
             group: None,
@@ -364,8 +364,8 @@ async fn install_etcd_runtime(
     for binary in ["etcd", "etcdctl"] {
         inventory
             .run(CopyTask {
-                src: extract_dir.join(binary),
-                dest: PathBuf::from(format!("/usr/local/bin/{binary}")),
+                src: extract_dir.join(binary).into(),
+                dest: PathBuf::from(format!("/usr/local/bin/{binary}")).into(),
                 owner: None,
                 group: None,
                 mode: Some("0755".to_string()),
@@ -390,8 +390,8 @@ async fn install_etcd_runtime(
 async fn distribute_certificates(inventory: &Inventory) -> anyhow::Result<()> {
     for upload in inventory
         .upload_file(
-            TemplatePath::new("{{ etcd.local_cert_dir }}/ca.crt"),
-            TemplatePath::new("{{ etcd.remote_ssl_dir }}/ca.crt"),
+            TemplatedPath::new("{{ etcd.local_cert_dir }}/ca.crt"),
+            TemplatedPath::new("{{ etcd.remote_ssl_dir }}/ca.crt"),
             UploadOptions {
                 owner: Some("etcd".to_string()),
                 group: Some("etcd".to_string()),
@@ -411,8 +411,8 @@ async fn distribute_certificates(inventory: &Inventory) -> anyhow::Result<()> {
 
     for upload in inventory
         .upload_file(
-            TemplatePath::new("{{ etcd.local_cert_dir }}/{{ rusible.host.name }}.crt"),
-            TemplatePath::new("{{ etcd.remote_ssl_dir }}/server.crt"),
+            TemplatedPath::new("{{ etcd.local_cert_dir }}/{{ rusible.host.name }}.crt"),
+            TemplatedPath::new("{{ etcd.remote_ssl_dir }}/server.crt"),
             UploadOptions {
                 owner: Some("etcd".to_string()),
                 group: Some("etcd".to_string()),
@@ -432,8 +432,8 @@ async fn distribute_certificates(inventory: &Inventory) -> anyhow::Result<()> {
 
     for upload in inventory
         .upload_file(
-            TemplatePath::new("{{ etcd.local_cert_dir }}/{{ rusible.host.name }}.key"),
-            TemplatePath::new("{{ etcd.remote_ssl_dir }}/server.key"),
+            TemplatedPath::new("{{ etcd.local_cert_dir }}/{{ rusible.host.name }}.key"),
+            TemplatedPath::new("{{ etcd.remote_ssl_dir }}/server.key"),
             UploadOptions {
                 owner: Some("etcd".to_string()),
                 group: Some("etcd".to_string()),

@@ -10,9 +10,9 @@ readme = "README.md"
 
 [dependencies]
 clap = { workspace = true }
-minijinja = { workspace = true }
 reqwest = { workspace = true, features = ["rustls-tls"] }
 rusible-meta = { workspace = true }
+rusible-template = { workspace = true }
 serde_json = { workspace = true }
 shlex = { workspace = true }
 thiserror = { workspace = true }

@@ -1,12 +1,12 @@
 use super::file;
 use crate::Error;
-use minijinja::{Environment, UndefinedBehavior};
+use rusible_template::render_string;
 use rusible_meta::{TaskDetails, TaskResult, TaskStatus, TemplateDetails, TemplateTask};
 use tokio::fs::{self, OpenOptions};
 
 pub(crate) async fn execute(task: &TemplateTask, context: &toml::Table) -> Result<TaskResult, Error> {
     let mut changes = file::FileChangeSummary::default();
-    let rendered = render_template(&task.content, context)?;
+    let rendered = render_string(&task.content, context)?;
 
     if let Some(parent) = task.dest.parent() {
         if !parent.as_os_str().is_empty() && !fs::try_exists(parent).await? {
@@ -51,14 +51,6 @@ pub(crate) async fn execute(task: &TemplateTask, context: &toml::Table) -> Resul
         changes.into_template_details(&task.dest),
     ))
 }
-
-fn render_template(content: &str, context: &toml::Table) -> Result<String, Error> {
-    let mut environment = Environment::new();
-    environment.set_undefined_behavior(UndefinedBehavior::Strict);
-    let template = environment.template_from_str(content)?;
-    Ok(template.render(context)?)
-}
-
 fn task_result(
     status: TaskStatus,
     message: impl Into<String>,

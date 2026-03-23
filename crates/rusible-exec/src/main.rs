@@ -1,6 +1,7 @@
 mod task;
 
 use clap::Parser;
+use rusible_template::TemplateError;
 use rusible_meta::{TaskRequest, TaskResult};
 use std::{
     io,
@@ -23,8 +24,8 @@ enum Error {
     #[error(transparent)]
     Http(#[from] reqwest::Error),
 
-    #[error("template rendering failed: {0}")]
-    Template(#[from] minijinja::Error),
+    #[error(transparent)]
+    Template(#[from] TemplateError),
 
     #[error("command `{program}` failed with status {status}: {stderr}")]
     CommandFailed {

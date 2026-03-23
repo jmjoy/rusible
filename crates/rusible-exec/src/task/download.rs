@@ -1,16 +1,21 @@
 use super::file;
 use crate::Error;
+use rusible_template::ResolveTemplate;
 use rusible_meta::{DownloadDetails, DownloadTask, TaskDetails, TaskResult, TaskStatus};
 use tokio::fs;
 
-pub(crate) async fn execute(task: &DownloadTask) -> Result<TaskResult, Error> {
-    if let Some(parent) = task.dest.parent() {
+pub(crate) async fn execute(
+    task: &DownloadTask, context: &toml::Table,
+) -> Result<TaskResult, Error> {
+    let dest = task.dest.resolve(context)?;
+
+    if let Some(parent) = dest.parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent).await?;
         }
     }
 
-    let destination_exists = fs::try_exists(&task.dest).await?;
+    let destination_exists = fs::try_exists(&dest).await?;
     let mut downloaded = false;
     let mut bytes_written = 0;
 
@@ -19,18 +24,18 @@ pub(crate) async fn execute(task: &DownloadTask) -> Result<TaskResult, Error> {
         let body = response.bytes().await?;
         bytes_written = body.len() as u64;
 
-        let temp_path = temporary_download_path(&task.dest);
+        let temp_path = temporary_download_path(&dest);
         fs::write(&temp_path, &body).await?;
-        fs::rename(&temp_path, &task.dest).await?;
+        fs::rename(&temp_path, &dest).await?;
         downloaded = true;
     }
 
-    let mode_changed = file::apply_mode(&task.dest, task.mode.as_deref()).await?;
+    let mode_changed = file::apply_mode(&dest, task.mode.as_deref()).await?;
     let ownership_changed =
-        file::apply_owner_group(&task.dest, task.owner.as_deref(), task.group.as_deref()).await?;
+        file::apply_owner_group(&dest, task.owner.as_deref(), task.group.as_deref()).await?;
     let details = DownloadDetails {
         url: task.url.clone(),
-        dest: task.dest.clone(),
+        dest,
         downloaded,
         bytes_written,
         mode_changed,
@@ -45,9 +50,9 @@ pub(crate) async fn execute(task: &DownloadTask) -> Result<TaskResult, Error> {
             TaskStatus::Ok
         },
         message: Some(if downloaded {
-            format!("downloaded {} to {}", task.url, task.dest.display())
+            format!("downloaded {} to {}", task.url, details.dest.display())
         } else {
-            format!("{} already exists", task.dest.display())
+            format!("{} already exists", details.dest.display())
         }),
         details: Some(TaskDetails::Download(details)),
     })
@@ -66,6 +71,7 @@ fn temporary_download_path(dest: &std::path::Path) -> std::path::PathBuf {
 mod tests {
     use super::execute;
     use rusible_meta::{DownloadDetails, DownloadTask, TaskDetails, TaskStatus};
+    use toml::Table;
     use std::{
         env, fs,
         io::{Read, Write},
@@ -82,12 +88,12 @@ mod tests {
 
         let result = execute(&DownloadTask {
             url,
-            dest: destination.clone(),
+            dest: destination.clone().into(),
             force: false,
             owner: None,
             group: None,
             mode: None,
-        })
+        }, &Table::new())
         .await
         .unwrap();
 
@@ -108,18 +114,58 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn download_task_renders_templated_destination() {
+        let (url, server) = spawn_http_server(b"templated");
+        let destination = unique_temp_path("templated");
+        let parent = destination.parent().unwrap().to_path_buf();
+        let file_name = destination.file_name().unwrap().to_string_lossy().into_owned();
+        let context = toml::toml! {
+            paths = { dir = (parent.display().to_string()), file = file_name }
+        };
+
+        let result = execute(
+            &DownloadTask {
+                url,
+                dest: rusible_meta::TemplatedPath::new("{{ paths.dir }}/{{ paths.file }}"),
+                force: false,
+                owner: None,
+                group: None,
+                mode: None,
+            },
+            &context,
+        )
+        .await
+        .unwrap();
+
+        server.join().unwrap();
+
+        assert_eq!(result.status, TaskStatus::Changed);
+        assert_eq!(fs::read_to_string(&destination).unwrap(), "templated");
+        assert!(matches!(
+            result.details,
+            Some(TaskDetails::Download(DownloadDetails {
+                downloaded: true,
+                bytes_written: 9,
+                ..
+            }))
+        ));
+
+        fs::remove_file(destination).unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn download_task_skips_existing_file_when_not_forced() {
         let destination = unique_temp_path("existing");
         fs::write(&destination, "existing").unwrap();
 
         let result = execute(&DownloadTask {
             url: "http://127.0.0.1:9/unused".to_string(),
-            dest: destination.clone(),
+            dest: destination.clone().into(),
             force: false,
             owner: None,
             group: None,
             mode: None,
-        })
+        }, &Table::new())
         .await
         .unwrap();
 

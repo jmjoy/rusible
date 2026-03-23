@@ -2286,8 +2286,8 @@ dependencies = [
 name = "rusible"
 version = "0.1.0"
 dependencies = [
- "minijinja",
  "rusible-meta",
+ "rusible-template",
  "russh",
  "russh-sftp",
  "serde",
@@ -2304,9 +2304,9 @@ name = "rusible-exec"
 version = "0.1.0"
 dependencies = [
  "clap",
- "minijinja",
  "reqwest",
  "rusible-meta",
+ "rusible-template",
  "serde_json",
  "shlex",
  "thiserror 2.0.12",
@@ -2318,8 +2318,19 @@ dependencies = [
 name = "rusible-meta"
 version = "0.1.0"
 dependencies = [
+ "rusible-template",
  "serde",
  "serde_json",
+ "toml",
+]
+
+[[package]]
+name = "rusible-template"
+version = "0.1.0"
+dependencies = [
+ "minijinja",
+ "serde",
+ "thiserror 2.0.12",
  "toml",
 ]
 

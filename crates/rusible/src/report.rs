@@ -1,4 +1,5 @@
 use crate::meta::{TaskDetails, TaskResult, TaskSpec, TaskStatus};
+use rusible_template::TemplateError;
 use std::{backtrace::Backtrace, path::PathBuf};
 
 /// Result of a task run on the local controller.
@@ -6,6 +7,15 @@ use std::{backtrace::Backtrace, path::PathBuf};
 pub struct LocalRunReport<D = TaskDetails> {
     pub exec_path: PathBuf,
     pub result: TaskResult<D>,
+}
+
+impl From<TemplateError> for RuntimeError {
+    fn from(source: TemplateError) -> Self {
+        Self::TemplateRender {
+            message: source.to_string(),
+            backtrace: Backtrace::capture(),
+        }
+    }
 }
 
 /// Result of a task run on a remote host.

@@ -1,9 +1,10 @@
 use crate::{
     VarError, VarLookupError,
     report::RuntimeError,
-    target::{Remote, RenderPath, UploadOptions, UploadReport},
+    target::{Remote, UploadOptions, UploadReport},
     vars::{get_table_path_string, merge_tables, remove_table_path, set_table_path},
 };
+use rusible_template::{ResolveTemplate, TemplatedPath};
 use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
@@ -289,23 +290,22 @@ impl Inventory {
 
     /// Uploads a local controller file to selected hosts, rendering per-host
     /// template paths when requested.
-    pub async fn upload_file<P, Q>(
-        &self, local_path: P, remote_path: Q, options: UploadOptions,
-    ) -> Result<Vec<InventoryUploadReport>, InventoryUploadError>
-    where
-        P: RenderPath,
-        Q: RenderPath,
-    {
+    pub async fn upload_file(
+        &self, local_path: impl Into<TemplatedPath>, remote_path: impl Into<TemplatedPath>,
+        options: UploadOptions,
+    ) -> Result<Vec<InventoryUploadReport>, InventoryUploadError> {
+        let local_path = local_path.into();
+        let remote_path = remote_path.into();
         let mut uploads = Vec::with_capacity(self.hosts.len());
 
         for host in &self.hosts {
             let context = host
                 .remote()
                 .build_context(Some(&self.vars), Some(host.name()));
-            let rendered_local_path = local_path.render_path(&context).map_err(|source| {
+            let rendered_local_path = local_path.resolve(&context).map_err(|source| {
                 InventoryUploadError::Runtime {
                     host: host.name().to_string(),
-                    source,
+                    source: RuntimeError::from(source),
                 }
             })?;
             let UploadReport {
@@ -315,10 +315,10 @@ impl Inventory {
                 .remote()
                 .upload_file(
                     rendered_local_path.clone(),
-                    remote_path.render_path(&context).map_err(|source| {
+                    remote_path.resolve(&context).map_err(|source| {
                         InventoryUploadError::Runtime {
                             host: host.name().to_string(),
-                            source,
+                            source: RuntimeError::from(source),
                         }
                     })?,
                     options.clone(),

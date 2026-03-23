@@ -10,7 +10,8 @@ pub mod target;
 mod vars;
 
 pub use rusible_meta as meta;
-pub use target::{TemplatePath, UploadOptions};
+pub use rusible_template::{ResolveTemplate, TemplatedPath, TemplatedString, TemplatedUrl};
+pub use target::UploadOptions;
 /// Re-exported TOML table type for task variable maps.
 pub use toml::Table;
 /// Re-exported TOML value type for task variable values.
