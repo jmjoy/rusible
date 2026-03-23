@@ -56,7 +56,8 @@ pub enum RuntimeError {
     },
 
     #[error(
-        "exec availability check failed with status {status}: {command}; stdout: {stdout}; stderr: {stderr}"
+        "exec availability check failed with status {status}: {command}; stdout: {stdout}; \
+         stderr: {stderr}"
     )]
     ExecUnavailable {
         command: String,
@@ -180,8 +181,8 @@ where
     R: RunReportLike,
     E: ReportBackedError<R>,
 {
-    type Report = R;
     type Error = E;
+    type Report = R;
 
     fn has_failed(&self) -> bool {
         report_ref(self).is_some_and(|report| report.has_status(TaskStatus::Failed))
@@ -242,7 +243,9 @@ impl LocalRunReport<TaskDetails> {
     {
         Ok(LocalRunReport {
             exec_path: self.exec_path,
-            result: self.result.try_map_details(|details| typed_details::<T>(details))?,
+            result: self
+                .result
+                .try_map_details(|details| typed_details::<T>(details))?,
         })
     }
 }
@@ -255,7 +258,9 @@ impl RemoteRunReport<TaskDetails> {
         Ok(RemoteRunReport {
             host: self.host,
             exec_path: self.exec_path,
-            result: self.result.try_map_details(|details| typed_details::<T>(details))?,
+            result: self
+                .result
+                .try_map_details(|details| typed_details::<T>(details))?,
         })
     }
 }
@@ -484,7 +489,10 @@ mod tests {
     #[test]
     fn ignore_unreachable_recovers_report() {
         let result: Result<BatchRunReport, BatchRunError> =
-            Err(BatchRunError::Report(batch_report(&[TaskStatus::Ok, TaskStatus::Unreachable])));
+            Err(BatchRunError::Report(batch_report(&[
+                TaskStatus::Ok,
+                TaskStatus::Unreachable,
+            ])));
 
         let report = result.ignore_unreachable().unwrap();
         assert!(report.has_status(TaskStatus::Unreachable));
@@ -492,11 +500,16 @@ mod tests {
 
     #[test]
     fn ignore_unreachable_does_not_hide_failed_statuses() {
-        let result: Result<BatchRunReport, BatchRunError> = Err(BatchRunError::Report(
-            batch_report(&[TaskStatus::Failed, TaskStatus::Unreachable]),
-        ));
+        let result: Result<BatchRunReport, BatchRunError> =
+            Err(BatchRunError::Report(batch_report(&[
+                TaskStatus::Failed,
+                TaskStatus::Unreachable,
+            ])));
 
-        assert!(matches!(result.ignore_unreachable(), Err(BatchRunError::Report(_))));
+        assert!(matches!(
+            result.ignore_unreachable(),
+            Err(BatchRunError::Report(_))
+        ));
     }
 
     #[test]
@@ -504,7 +517,10 @@ mod tests {
         let result: Result<BatchRunReport, BatchRunError> =
             Ok(batch_report(&[TaskStatus::Ok, TaskStatus::Skipped]));
 
-        assert!(matches!(result.fail_on_skipped(), Err(BatchRunError::Report(_))));
+        assert!(matches!(
+            result.fail_on_skipped(),
+            Err(BatchRunError::Report(_))
+        ));
     }
 
     #[test]
@@ -520,11 +536,10 @@ mod tests {
 
     #[test]
     fn into_report_preserves_runtime_errors() {
-        let result: Result<LocalRunReport, LocalRunError> = Err(LocalRunError::Runtime(
-            RuntimeError::NotInitialized {
+        let result: Result<LocalRunReport, LocalRunError> =
+            Err(LocalRunError::Runtime(RuntimeError::NotInitialized {
                 backtrace: Backtrace::capture(),
-            },
-        ));
+            }));
 
         assert!(matches!(
             result.into_report(),

@@ -1,4 +1,4 @@
-use rusible::{meta::TemplateTask, runtime::Runnable as _, target::Remote};
+use rusible::{meta::TemplateTask, runtime::Runnable as _, target::Remote, toml};
 use std::path::PathBuf;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -15,16 +15,50 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let mut remotes = vec![
-        Remote::new("127.0.0.1", 2222, "root", Some("123456".into()), None),
-        Remote::new("127.0.0.1", 2223, "root", Some("123456".into()), None),
-        Remote::new("127.0.0.1", 2224, "root", Some("123456".into()), None),
+        Remote::new_with_vars(
+            "127.0.0.1",
+            2222,
+            "root",
+            Some("123456".into()),
+            None,
+            toml! {
+                [app]
+                name = "rusible"
+                instance = "node-1"
+            },
+        ),
+        Remote::new_with_vars(
+            "127.0.0.1",
+            2223,
+            "root",
+            Some("123456".into()),
+            None,
+            toml! {
+                [app]
+                name = "rusible"
+                instance = "node-2"
+            },
+        ),
+        Remote::new_with_vars(
+            "127.0.0.1",
+            2224,
+            "root",
+            Some("123456".into()),
+            None,
+            toml! {
+                [app]
+                name = "rusible"
+                instance = "node-3"
+            },
+        ),
     ];
+
     remotes.init(RUSIBLE_EXEC_BYTES).await?;
 
     let report = remotes
         .run(TemplateTask {
             dest: PathBuf::from("/tmp/hello-world.txt"),
-            content: "hello world from rusible\n".to_string(),
+            content: include_str!("hello-world.j2").to_string(),
             owner: None,
             group: None,
             mode: Some("0644".to_string()),

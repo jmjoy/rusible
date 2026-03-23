@@ -7,7 +7,8 @@ execution.
 
 - initializing `rusible-exec` as a target-side executor artifact
 - connecting to a remote host through the `rusible` runtime
-- running a simple template task and reporting the result
+- setting per-remote variables from Rust before task execution
+- rendering a template with both custom vars and the reserved `rusible.*` namespace
 
 This example is intended as a minimal integration exercise for the workspace.
 

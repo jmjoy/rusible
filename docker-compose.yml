@@ -5,6 +5,5 @@ services:
       dockerfile: docker/sshd/Dockerfile
     ports:
       - "2222-2224:22" 
-    restart: unless-stopped
     deploy:
       replicas: 3

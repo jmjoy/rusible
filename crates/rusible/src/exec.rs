@@ -1,5 +1,5 @@
 use crate::{
-    meta::{Task, TaskResult, TaskStatus},
+    meta::{TaskRequest, TaskResult, TaskStatus},
     report::{RemoteRunReport, RuntimeError},
     target::Remote,
 };
@@ -22,15 +22,15 @@ use tokio::{fs, io::AsyncWriteExt, process::Command};
 use tracing::debug;
 
 pub(crate) async fn run_remote_with_json(
-    remote: Remote,
-    task_json: String,
+    remote: Remote, task_json: String,
 ) -> Result<RemoteRunReport, RuntimeError> {
-    let exec_path = remote
-        .remote_exec_path
-        .clone()
-        .ok_or_else(|| RuntimeError::NotInitialized {
-            backtrace: Backtrace::capture(),
-        })?;
+    let exec_path =
+        remote
+            .remote_exec_path
+            .clone()
+            .ok_or_else(|| RuntimeError::NotInitialized {
+                backtrace: Backtrace::capture(),
+            })?;
     let result = match execute_remote_task(&remote, &exec_path, &task_json).await {
         Ok(result) => result,
         Err(error) => TaskResult::unreachable(error.to_string()),
@@ -44,16 +44,15 @@ pub(crate) async fn run_remote_with_json(
 }
 
 pub(crate) async fn run_named_remote_with_json(
-    name: String,
-    remote: Remote,
-    task_json: String,
+    name: String, remote: Remote, task_json: String,
 ) -> Result<RemoteRunReport, RuntimeError> {
-    let exec_path = remote
-        .remote_exec_path
-        .clone()
-        .ok_or_else(|| RuntimeError::NotInitialized {
-            backtrace: Backtrace::capture(),
-        })?;
+    let exec_path =
+        remote
+            .remote_exec_path
+            .clone()
+            .ok_or_else(|| RuntimeError::NotInitialized {
+                backtrace: Backtrace::capture(),
+            })?;
     let result = match execute_remote_task(&remote, &exec_path, &task_json).await {
         Ok(result) => result,
         Err(error) => TaskResult::unreachable(error.to_string()),
@@ -105,16 +104,14 @@ pub(crate) async fn validate_local_exec(exec_path: &Path) -> Result<(), RuntimeE
 }
 
 pub(crate) async fn run_exec_process(
-    exec_path: &Path,
-    task: &Task,
+    exec_path: &Path, request: &TaskRequest,
 ) -> Result<TaskResult, RuntimeError> {
-    let task_json = serde_json::to_string(task)?;
+    let task_json = serde_json::to_string(request)?;
     run_exec_process_with_json(exec_path, &task_json).await
 }
 
 async fn run_exec_process_with_json(
-    exec_path: &Path,
-    task_json: &str,
+    exec_path: &Path, task_json: &str,
 ) -> Result<TaskResult, RuntimeError> {
     let printable = path_to_string(exec_path);
     debug!(exec_path = %exec_path.display(), payload_bytes = task_json.len(), "spawning local rusible-exec process");
@@ -125,11 +122,14 @@ async fn run_exec_process_with_json(
         .stderr(Stdio::piped());
 
     let mut child = command.spawn()?;
-    let mut stdin = child.stdin.take().ok_or_else(|| RuntimeError::MissingPipe {
-        command: printable.clone(),
-        stream: "stdin",
-        backtrace: Backtrace::capture(),
-    })?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| RuntimeError::MissingPipe {
+            command: printable.clone(),
+            stream: "stdin",
+            backtrace: Backtrace::capture(),
+        })?;
     stdin.write_all(task_json.as_bytes()).await?;
     drop(stdin);
 
@@ -147,7 +147,8 @@ async fn run_exec_process_with_json(
 
     let result: TaskResult = serde_json::from_str(&stdout)?;
 
-    if output.status.success() || matches!(result.status, TaskStatus::Failed | TaskStatus::Unreachable)
+    if output.status.success()
+        || matches!(result.status, TaskStatus::Failed | TaskStatus::Unreachable)
     {
         Ok(result)
     } else {
@@ -161,8 +162,7 @@ async fn run_exec_process_with_json(
 }
 
 pub(crate) async fn initialize_remote_exec(
-    remote: &Remote,
-    exec_bytes: &[u8],
+    remote: &Remote, exec_bytes: &[u8],
 ) -> Result<String, RuntimeError> {
     let mut session = RemoteSession::connect(remote).await?;
     let sftp = session.open_sftp().await?;
@@ -198,8 +198,7 @@ pub(crate) async fn initialize_remote_exec(
 }
 
 pub(crate) async fn validate_remote_exec(
-    remote: &Remote,
-    exec_path: &str,
+    remote: &Remote, exec_path: &str,
 ) -> Result<(), RuntimeError> {
     let mut session = RemoteSession::connect(remote).await?;
     let command = format!("{} --version", shell_quote(exec_path));
@@ -216,9 +215,7 @@ pub(crate) async fn validate_remote_exec(
 }
 
 pub(crate) async fn execute_remote_task(
-    remote: &Remote,
-    exec_path: &str,
-    task_json: &str,
+    remote: &Remote, exec_path: &str, task_json: &str,
 ) -> Result<TaskResult, RuntimeError> {
     let mut session = RemoteSession::connect(remote).await?;
     debug!(host = %remote.host, port = remote.port, exec_path = %exec_path, payload_bytes = task_json.len(), "executing remote task");
@@ -305,10 +302,7 @@ fn path_to_string(path: &Path) -> String {
 }
 
 pub(crate) fn validate_exec_availability(
-    command: &str,
-    status: i32,
-    stdout: String,
-    stderr: String,
+    command: &str, status: i32, stdout: String, stderr: String,
 ) -> Result<(), RuntimeError> {
     if status == 0 && !stdout.is_empty() {
         Ok(())
@@ -346,8 +340,7 @@ impl client::Handler for SshClient {
     type Error = russh::Error;
 
     async fn check_server_key(
-        &mut self,
-        _server_public_key: &ssh_key::PublicKey,
+        &mut self, _server_public_key: &ssh_key::PublicKey,
     ) -> Result<bool, Self::Error> {
         Ok(true)
     }
@@ -393,9 +386,7 @@ impl RemoteSession {
     }
 
     async fn run_command(
-        &mut self,
-        command: &str,
-        stdin: Option<&[u8]>,
+        &mut self, command: &str, stdin: Option<&[u8]>,
     ) -> Result<RemoteCommandOutput, RuntimeError> {
         let mut channel = self.handle.channel_open_session().await?;
         channel.exec(true, command).await?;
@@ -437,8 +428,7 @@ impl RemoteSession {
 }
 
 async fn authenticate_remote(
-    handle: &mut client::Handle<SshClient>,
-    remote: &Remote,
+    handle: &mut client::Handle<SshClient>, remote: &Remote,
 ) -> Result<(), RuntimeError> {
     if let Some(key_path) = &remote.key {
         debug!(host = %remote.host, port = remote.port, user = %remote.user, key_path = %key_path.display(), "authenticating remote with private key");
@@ -514,13 +504,15 @@ mod tests {
 
     #[test]
     fn exec_availability_accepts_version_output() {
-        assert!(validate_exec_availability(
-            "rusible-exec --version",
-            0,
-            "rusible-exec 0.1.0".to_string(),
-            String::new(),
-        )
-        .is_ok());
+        assert!(
+            validate_exec_availability(
+                "rusible-exec --version",
+                0,
+                "rusible-exec 0.1.0".to_string(),
+                String::new(),
+            )
+            .is_ok()
+        );
     }
 
     #[test]

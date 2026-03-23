@@ -8,6 +8,8 @@ The workspace is currently split into three crates:
 - `rusible-exec`: target-side executor binary that applies serialized tasks
 - `rusible-meta`: shared serializable task definitions used by both sides
 
+Currently supported tasks include file, template, and command execution.
+
 ## Workspace layout
 
 - `crates/rusible`: main library crate

@@ -1,8 +1,4 @@
-use rusible::{
-    inventory::Inventory,
-    meta::TemplateTask,
-    runtime::Runnable as _,
-};
+use rusible::{inventory::Inventory, meta::TemplateTask, runtime::Runnable as _};
 use std::path::PathBuf;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -23,6 +19,13 @@ async fn main() -> anyhow::Result<()> {
         .await?
         .filter_by_group("web");
 
+    inventory.set_var("app.release", "2026.03")?;
+    inventory
+        .host_mut("ops-1")
+        .expect("ops-1 should exist in the example inventory")
+        .remote_mut()
+        .set_var("app.role", "ops-web")?;
+
     info!(
         inventory = %inventory_path.display(),
         selected_hosts = inventory.len(),
@@ -34,7 +37,16 @@ async fn main() -> anyhow::Result<()> {
     let report = inventory
         .run(TemplateTask {
             dest: PathBuf::from("/tmp/hello-inventory.txt"),
-            content: "hello from inventory.toml\n".to_string(),
+            content: concat!(
+                "hello from {{ app.name }}\n",
+                "env={{ app.env }}\n",
+                "role={{ app.role }}\n",
+                "release={{ app.release }}\n",
+                "group={{ group.primary }}\n",
+                "inventory_host={{ rusible.host.name }}\n",
+                "ssh={{ rusible.host.user }}@{{ rusible.host.host }}:{{ rusible.host.port }}\n"
+            )
+            .to_string(),
             owner: None,
             group: None,
             mode: Some("0644".to_string()),

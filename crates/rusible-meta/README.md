@@ -6,7 +6,7 @@ Rusible workspace.
 ## Responsibilities
 
 - define task payload types
-- define file and template task variants
+- define file, template, and command task variants
 - define structured execution result types
 
 This crate keeps the controller and executor aligned on the same wire format

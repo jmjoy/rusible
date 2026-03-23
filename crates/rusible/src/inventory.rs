@@ -1,10 +1,15 @@
-use crate::target::Remote;
+use crate::{
+    VarError,
+    target::Remote,
+    vars::{merge_tables, remove_table_path, set_table_path},
+};
 use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 use tokio::fs;
+use toml::{Table, Value};
 
 /// A named host inside an [`Inventory`].
 ///
@@ -34,6 +39,7 @@ pub struct Group {
 pub struct Inventory {
     pub(crate) groups: Vec<Group>,
     pub(crate) hosts: Vec<Host>,
+    pub(crate) vars: Table,
 }
 
 impl Host {
@@ -70,6 +76,11 @@ impl Host {
     /// Returns the remote target.
     pub fn remote(&self) -> &Remote {
         &self.remote
+    }
+
+    /// Returns the mutable remote target.
+    pub fn remote_mut(&mut self) -> &mut Remote {
+        &mut self.remote
     }
 
     /// Returns the declared group memberships.
@@ -130,6 +141,36 @@ impl Inventory {
         Self::default()
     }
 
+    /// Returns the default template variable table for all remote hosts.
+    pub fn vars(&self) -> &Table {
+        &self.vars
+    }
+
+    /// Returns the mutable default template variable table for all remote
+    /// hosts.
+    pub fn vars_mut(&mut self) -> &mut Table {
+        &mut self.vars
+    }
+
+    /// Recursively merges default variables into the inventory.
+    pub fn merge_vars(&mut self, vars: Table) {
+        merge_tables(&mut self.vars, &vars);
+    }
+
+    /// Sets a default variable by dotted path, creating missing intermediate
+    /// tables.
+    pub fn set_var(
+        &mut self, path: impl AsRef<str>, value: impl Into<Value>,
+    ) -> Result<(), VarError> {
+        set_table_path(&mut self.vars, path.as_ref(), value)
+    }
+
+    /// Removes a default variable by dotted path and returns the removed value
+    /// when present.
+    pub fn remove_var(&mut self, path: impl AsRef<str>) -> Result<Option<Value>, VarError> {
+        remove_table_path(&mut self.vars, path.as_ref())
+    }
+
     /// Appends a top-level group.
     pub fn add_group(mut self, group: Group) -> Self {
         self.groups.push(group);
@@ -180,6 +221,7 @@ impl Inventory {
                 .filter(|host| host.groups.iter().any(|name| group_names.contains(name)))
                 .cloned()
                 .collect(),
+            vars: self.vars.clone(),
         }
     }
 
@@ -205,6 +247,7 @@ impl Inventory {
                 .filter(|host| names.contains(host.name()))
                 .cloned()
                 .collect(),
+            vars: self.vars.clone(),
         }
     }
 
@@ -218,6 +261,11 @@ impl Inventory {
         &self.hosts
     }
 
+    /// Returns a mutable host by inventory name.
+    pub fn host_mut(&mut self, name: &str) -> Option<&mut Host> {
+        self.hosts.iter_mut().find(|host| host.name() == name)
+    }
+
     /// Returns `true` if no hosts are selected.
     pub fn is_empty(&self) -> bool {
         self.hosts.is_empty()
@@ -226,13 +274,6 @@ impl Inventory {
     /// Returns the total number of selected hosts.
     pub fn len(&self) -> usize {
         self.hosts.len()
-    }
-
-    pub(crate) fn collect_named_remotes(&self) -> Vec<(String, Remote)> {
-        self.hosts
-            .iter()
-            .map(|host| (host.name.clone(), host.remote.clone()))
-            .collect()
     }
 }
 
@@ -271,6 +312,8 @@ pub enum InventoryLoadError {
 #[derive(Debug, Deserialize, Default)]
 struct InventoryToml {
     #[serde(default)]
+    vars: Table,
+    #[serde(default)]
     groups: Vec<InventoryTomlGroup>,
     #[serde(default)]
     hosts: Vec<InventoryTomlHost>,
@@ -292,6 +335,8 @@ struct InventoryTomlHost {
     user: String,
     password: Option<String>,
     key: Option<PathBuf>,
+    #[serde(default)]
+    vars: Table,
     #[serde(default)]
     groups: Vec<String>,
 }
@@ -366,27 +411,23 @@ impl InventoryToml {
                 }
             }
 
-            hosts.push(
-                Host::with_remote(
-                    host.name,
-                    Remote::new(host.host, host.port, host.user, host.password, host.key),
-                )
-                .add_groups(host.groups),
-            );
+            let mut remote = Remote::new(host.host, host.port, host.user, host.password, host.key);
+            remote.merge_vars(host.vars);
+
+            hosts.push(Host::with_remote(host.name, remote).add_groups(host.groups));
         }
 
         Ok(Inventory {
             groups: root_groups,
             hosts,
+            vars: self.vars,
         })
     }
 }
 
 fn build_group_tree(
-    name: &str,
-    children_by_name: &HashMap<String, Vec<String>>,
-    built_groups: &mut HashMap<String, Group>,
-    active_stack: &mut HashSet<String>,
+    name: &str, children_by_name: &HashMap<String, Vec<String>>,
+    built_groups: &mut HashMap<String, Group>, active_stack: &mut HashSet<String>,
 ) -> Result<Group, InventoryLoadError> {
     if let Some(group) = built_groups.get(name) {
         return Ok(group.clone());
@@ -442,6 +483,12 @@ mod tests {
     }
 
     const INVENTORY_TOML: &str = r#"
+[vars]
+region = "cn-north-1"
+
+[vars.app]
+name = "rusible"
+
 [[groups]]
 name = "prod"
 children = ["web", "db"]
@@ -465,6 +512,7 @@ host = "10.0.0.11"
 port = 2222
 user = "root"
 password = "secret"
+vars = { role = "web" }
 groups = ["web"]
 
 [[hosts]]
@@ -472,6 +520,7 @@ name = "db-1"
 host = "10.0.0.21"
 user = "root"
 key = "/tmp/db.pem"
+vars = { role = "db" }
 groups = ["db"]
 
 [[hosts]]
@@ -559,6 +608,30 @@ groups = ["web", "monitoring"]
         assert_eq!(inventory.hosts()[0].name(), "web-1");
         assert_eq!(inventory.hosts()[0].remote().port, 2222);
         assert_eq!(inventory.hosts()[1].remote().port, 22);
+        assert_eq!(inventory.vars()["region"].as_str(), Some("cn-north-1"));
+        assert_eq!(
+            inventory.hosts()[0].remote().vars["role"].as_str(),
+            Some("web")
+        );
+    }
+
+    #[test]
+    fn inventory_var_mutation_apis_work() {
+        let mut inventory = make_inventory();
+
+        inventory.set_var("app.name", "rusible").unwrap();
+        inventory
+            .host_mut("web-1")
+            .unwrap()
+            .remote_mut()
+            .set_var("app.port", 8080)
+            .unwrap();
+
+        assert_eq!(inventory.vars()["app"]["name"].as_str(), Some("rusible"));
+        assert_eq!(
+            inventory.hosts()[0].remote().vars["app"]["port"].as_integer(),
+            Some(8080)
+        );
     }
 
     #[test]

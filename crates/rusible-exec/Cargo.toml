@@ -10,6 +10,9 @@ readme = "README.md"
 
 [dependencies]
 clap = { workspace = true }
+minijinja = { workspace = true }
 rusible-meta = { workspace = true }
 serde_json = { workspace = true }
+shlex = { workspace = true }
 thiserror = { workspace = true }
+toml = { workspace = true }

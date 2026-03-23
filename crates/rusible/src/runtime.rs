@@ -15,8 +15,7 @@ pub trait Runnable {
     /// Reads a `rusible-exec` binary from disk and prepares it for later task
     /// execution.
     fn init_with_path<P>(
-        &mut self,
-        exec_path: P,
+        &mut self, exec_path: P,
     ) -> impl Future<Output = Result<(), Self::InitError>> + Send
     where
         Self: Send,
@@ -34,16 +33,14 @@ pub trait Runnable {
     /// Prepares the provided `rusible-exec` binary bytes for later task
     /// execution.
     fn init(
-        &mut self,
-        exec_bytes: &[u8],
+        &mut self, exec_bytes: &[u8],
     ) -> impl Future<Output = Result<(), Self::InitError>> + Send
     where
         Self: Send;
 
     /// Serializes a task, executes it, and returns the structured result.
     fn run<T>(
-        &mut self,
-        task: T,
+        &mut self, task: T,
     ) -> impl Future<Output = Result<Self::Output<T::Details>, Self::RunError<T::Details>>> + Send
     where
         Self: Send,

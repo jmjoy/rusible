@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use toml::Table;
 
 /// Describes a task that can be executed by `rusible-exec`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -11,6 +12,8 @@ pub enum Task {
     File(FileTask),
     /// Writes rendered template content to a destination path.
     Template(TemplateTask),
+    /// Executes a command without invoking a shell.
+    Command(CommandTask),
 }
 
 impl From<FileTask> for Task {
@@ -22,6 +25,26 @@ impl From<FileTask> for Task {
 impl From<TemplateTask> for Task {
     fn from(task: TemplateTask) -> Self {
         Self::Template(task)
+    }
+}
+
+impl From<CommandTask> for Task {
+    fn from(task: CommandTask) -> Self {
+        Self::Command(task)
+    }
+}
+
+/// Serialized task request sent from the controller to `rusible-exec`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TaskRequest {
+    pub task: Task,
+    #[serde(default, skip_serializing_if = "Table::is_empty")]
+    pub context: Table,
+}
+
+impl TaskRequest {
+    pub fn new(task: Task, context: Table) -> Self {
+        Self { task, context }
     }
 }
 
@@ -65,6 +88,23 @@ pub struct TemplateTask {
     pub mode: Option<String>,
 }
 
+/// Command task parameters modelled after Ansible's command module.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandTask {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cmd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub argv: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chdir: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creates: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removes: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdin: Option<String>,
+}
+
 impl TaskSpec for Task {
     type Details = TaskDetails;
 
@@ -81,9 +121,10 @@ impl TaskSpec for FileTask {
     type Details = FileDetails;
 
     fn try_from_details(details: TaskDetails) -> Option<Self::Details> {
-        match details {
-            TaskDetails::File(details) => Some(details),
-            TaskDetails::Template(_) => None,
+        if let TaskDetails::File(details) = details {
+            Some(details)
+        } else {
+            None
         }
     }
 
@@ -96,14 +137,31 @@ impl TaskSpec for TemplateTask {
     type Details = TemplateDetails;
 
     fn try_from_details(details: TaskDetails) -> Option<Self::Details> {
-        match details {
-            TaskDetails::File(_) => None,
-            TaskDetails::Template(details) => Some(details),
+        if let TaskDetails::Template(details) = details {
+            Some(details)
+        } else {
+            None
         }
     }
 
     fn expected_task_kind() -> &'static str {
         "template"
+    }
+}
+
+impl TaskSpec for CommandTask {
+    type Details = CommandDetails;
+
+    fn try_from_details(details: TaskDetails) -> Option<Self::Details> {
+        if let TaskDetails::Command(details) = details {
+            Some(details)
+        } else {
+            None
+        }
+    }
+
+    fn expected_task_kind() -> &'static str {
+        "command"
     }
 }
 
@@ -125,6 +183,8 @@ pub enum TaskDetails {
     File(FileDetails),
     /// Details produced by a template task.
     Template(TemplateDetails),
+    /// Details produced by a command task.
+    Command(CommandDetails),
 }
 
 impl TaskDetails {
@@ -133,6 +193,7 @@ impl TaskDetails {
         match self {
             Self::File(_) => "file",
             Self::Template(_) => "template",
+            Self::Command(_) => "command",
         }
     }
 }
@@ -166,6 +227,20 @@ pub struct TemplateDetails {
     pub mode_changed: bool,
     #[serde(default)]
     pub ownership_changed: bool,
+}
+
+/// Structured details for a command task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandDetails {
+    pub cmd: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chdir: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rc: Option<i32>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub stdout: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub stderr: String,
 }
 
 /// High-level execution status returned by `rusible-exec` and the controller.
@@ -237,7 +312,9 @@ impl<D> TaskResult<D> {
     }
 
     /// Converts the details payload while preserving status and message.
-    pub fn try_map_details<U, E>(self, f: impl FnOnce(D) -> Result<U, E>) -> Result<TaskResult<U>, E> {
+    pub fn try_map_details<U, E>(
+        self, f: impl FnOnce(D) -> Result<U, E>,
+    ) -> Result<TaskResult<U>, E> {
         Ok(TaskResult {
             status: self.status,
             message: self.message,
@@ -268,6 +345,31 @@ mod tests {
         let decoded: Task = serde_json::from_str(&json).unwrap();
 
         assert_eq!(decoded, task);
+    }
+
+    #[test]
+    fn task_request_round_trips_as_json() {
+        let mut context = Table::new();
+        context.insert(
+            "region".to_string(),
+            toml::Value::String("cn-north-1".to_string()),
+        );
+
+        let request = TaskRequest::new(
+            Task::Template(TemplateTask {
+                dest: PathBuf::from("/tmp/example"),
+                content: "hello {{ region }}".to_string(),
+                owner: None,
+                group: None,
+                mode: None,
+            }),
+            context,
+        );
+
+        let json = serde_json::to_string(&request).unwrap();
+        let decoded: TaskRequest = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(decoded, request);
     }
 
     #[test]
@@ -318,6 +420,21 @@ mod tests {
     }
 
     #[test]
+    fn command_task_converts_into_task() {
+        let task: Task = CommandTask {
+            cmd: Some("echo hello".to_string()),
+            argv: None,
+            chdir: Some(PathBuf::from("/tmp")),
+            creates: None,
+            removes: None,
+            stdin: None,
+        }
+        .into();
+
+        assert!(matches!(task, Task::Command(_)));
+    }
+
+    #[test]
     fn file_task_spec_extracts_file_details() {
         let details = FileTask::try_from_details(TaskDetails::File(FileDetails {
             path: PathBuf::from("/tmp/example"),
@@ -329,6 +446,49 @@ mod tests {
             ownership_changed: false,
         }));
 
-        assert!(matches!(details, Some(FileDetails { mode_changed: true, .. })));
+        assert!(matches!(
+            details,
+            Some(FileDetails {
+                mode_changed: true,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn command_task_spec_extracts_command_details() {
+        let details = CommandTask::try_from_details(TaskDetails::Command(CommandDetails {
+            cmd: vec!["echo".to_string(), "hello".to_string()],
+            chdir: Some(PathBuf::from("/tmp")),
+            rc: Some(0),
+            stdout: "hello\n".to_string(),
+            stderr: String::new(),
+        }));
+
+        assert!(matches!(
+            details,
+            Some(CommandDetails {
+                rc: Some(0),
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn command_result_with_details_round_trips_as_json() {
+        let result = TaskResult::changed("command executed").with_details(TaskDetails::Command(
+            CommandDetails {
+                cmd: vec!["echo".to_string(), "hello".to_string()],
+                chdir: Some(PathBuf::from("/tmp")),
+                rc: Some(0),
+                stdout: "hello\n".to_string(),
+                stderr: String::new(),
+            },
+        ));
+
+        let json = serde_json::to_string(&result).unwrap();
+        let decoded: TaskResult = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(decoded, result);
     }
 }
