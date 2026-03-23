@@ -1,5 +1,5 @@
 use crate::{
-    VarError,
+    VarError, VarLookupError,
     exec::{
         ensure_local_exec, execute_remote_task, initialize_remote_exec, run_exec_process,
         run_named_remote_with_json, run_remote_with_json, upload_remote_bytes,
@@ -14,7 +14,8 @@ use crate::{
     },
     runtime::Runnable,
     vars::{
-        build_local_context, build_remote_context, merge_tables, remove_table_path, set_table_path,
+        build_local_context, build_remote_context, get_table_path_string, merge_tables,
+        remove_table_path, render_template, set_table_path,
     },
 };
 use std::{
@@ -51,6 +52,51 @@ pub struct UploadReport {
     pub bytes_written: usize,
 }
 
+/// A controller-side path that is rendered from a template using a target's
+/// resolved variable context.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TemplatePath(String);
+
+/// Upload options applied after a file is written to the remote host.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UploadOptions {
+    pub owner: Option<String>,
+    pub group: Option<String>,
+    pub mode: Option<String>,
+}
+
+/// A path-like value that can be resolved against a template context.
+pub trait RenderPath {
+    fn render_path(&self, context: &Table) -> Result<PathBuf, RuntimeError>;
+}
+
+impl TemplatePath {
+    /// Creates a template-backed path rendered with the target context.
+    pub fn new(template: impl Into<String>) -> Self {
+        Self(template.into())
+    }
+
+    /// Returns the template source.
+    pub fn template(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<T> RenderPath for T
+where
+    T: AsRef<Path>,
+{
+    fn render_path(&self, _context: &Table) -> Result<PathBuf, RuntimeError> {
+        Ok(self.as_ref().to_path_buf())
+    }
+}
+
+impl RenderPath for TemplatePath {
+    fn render_path(&self, context: &Table) -> Result<PathBuf, RuntimeError> {
+        Ok(PathBuf::from(render_template(&self.0, context)?))
+    }
+}
+
 impl Local {
     /// Creates a local controller target with empty template variables.
     pub fn new() -> Self {
@@ -75,6 +121,11 @@ impl Local {
     /// Returns the template variable table for this local target.
     pub fn vars(&self) -> &Table {
         &self.vars
+    }
+
+    /// Returns a string variable by dotted path.
+    pub fn get_var(&self, path: impl AsRef<str>) -> Result<String, VarLookupError> {
+        get_table_path_string(&self.vars, path.as_ref())
     }
 
     /// Returns the mutable template variable table for this local target.
@@ -132,6 +183,20 @@ impl Remote {
         self.remote_exec_path.as_deref()
     }
 
+    /// Returns the template variable table for this remote target.
+    pub fn vars(&self) -> &Table {
+        &self.vars
+    }
+
+    pub(crate) fn build_context(&self, defaults: Option<&Table>, host_name: Option<&str>) -> Table {
+        build_remote_context(defaults, &self.vars, host_name, &self.host, self.port, &self.user)
+    }
+
+    /// Returns a string variable by dotted path.
+    pub fn get_var(&self, path: impl AsRef<str>) -> Result<String, VarLookupError> {
+        get_table_path_string(&self.vars, path.as_ref())
+    }
+
     /// Recursively merges variables into the remote target.
     pub fn merge_vars(&mut self, vars: Table) {
         merge_tables(&mut self.vars, &vars);
@@ -152,24 +217,29 @@ impl Remote {
 
     /// Uploads a local file from the controller to a path on the remote host.
     pub async fn upload_file<P, Q>(
-        &self, local_path: P, remote_path: Q,
+        &self, local_path: P, remote_path: Q, options: UploadOptions,
     ) -> Result<UploadReport, RuntimeError>
     where
-        P: AsRef<Path>,
-        Q: AsRef<Path>,
+        P: RenderPath,
+        Q: RenderPath,
     {
-        let bytes = tokio::fs::read(local_path.as_ref()).await?;
-        self.upload_bytes(remote_path, &bytes).await
+        let context = self.build_context(None, None);
+        let local_path = local_path.render_path(&context)?;
+        let remote_path = remote_path.render_path(&context)?;
+        let bytes = tokio::fs::read(&local_path).await?;
+        self.upload_bytes(remote_path, &bytes, options).await
     }
 
     /// Uploads controller-provided bytes to a path on the remote host.
     pub async fn upload_bytes<P>(
-        &self, remote_path: P, bytes: &[u8],
+        &self, remote_path: P, bytes: &[u8], options: UploadOptions,
     ) -> Result<UploadReport, RuntimeError>
     where
-        P: AsRef<Path>,
+        P: RenderPath,
     {
-        let remote_path = upload_remote_bytes(self, remote_path.as_ref(), bytes).await?;
+        let context = self.build_context(None, None);
+        let remote_path = remote_path.render_path(&context)?;
+        let remote_path = upload_remote_bytes(self, &remote_path, bytes, &options).await?;
 
         Ok(UploadReport {
             remote_path,
@@ -394,15 +464,35 @@ fn prepare_local_request(local: &Local, task: Task) -> TaskRequest {
 fn prepare_remote_request(
     task: Task, remote: &Remote, inventory_vars: Option<&Table>, host_name: Option<&str>,
 ) -> TaskRequest {
-    TaskRequest::new(
-        task,
-        build_remote_context(
-            inventory_vars,
-            &remote.vars,
-            host_name,
-            &remote.host,
-            remote.port,
-            &remote.user,
-        ),
-    )
+    TaskRequest::new(task, remote.build_context(inventory_vars, host_name))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn template_path_renders_remote_context_values() {
+        let mut remote = Remote::new("10.0.0.11", 22, "root", None, None);
+        remote.set_var("etcd.cert_dir", "/tmp/certs").unwrap();
+
+        let context = remote.build_context(None, Some("web-1"));
+        let rendered = TemplatePath::new("{{ etcd.cert_dir }}/{{ rusible.host.name }}.crt")
+            .render_path(&context)
+            .unwrap();
+
+        assert_eq!(rendered, PathBuf::from("/tmp/certs/web-1.crt"));
+    }
+
+    #[test]
+    fn template_path_requires_defined_variables() {
+        let remote = Remote::new("10.0.0.11", 22, "root", None, None);
+        let context = remote.build_context(None, Some("web-1"));
+
+        let error = TemplatePath::new("{{ missing.value }}/server.crt")
+            .render_path(&context)
+            .unwrap_err();
+
+        assert!(matches!(error, RuntimeError::TemplateRender { .. }));
+    }
 }

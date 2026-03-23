@@ -1,7 +1,8 @@
 use crate::{
-    VarError,
-    target::Remote,
-    vars::{merge_tables, remove_table_path, set_table_path},
+    VarError, VarLookupError,
+    report::RuntimeError,
+    target::{Remote, RenderPath, UploadOptions, UploadReport},
+    vars::{get_table_path_string, merge_tables, remove_table_path, set_table_path},
 };
 use serde::Deserialize;
 use std::{
@@ -40,6 +41,26 @@ pub struct Inventory {
     pub(crate) groups: Vec<Group>,
     pub(crate) hosts: Vec<Host>,
     pub(crate) vars: Table,
+}
+
+/// Result of uploading a file to one host selected by an [`Inventory`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InventoryUploadReport {
+    pub host: String,
+    pub local_path: PathBuf,
+    pub remote_path: String,
+    pub bytes_written: usize,
+}
+
+/// Error returned when uploading a file to hosts selected by an [`Inventory`].
+#[derive(Debug, thiserror::Error)]
+pub enum InventoryUploadError {
+    #[error("failed to upload file to host `{host}`: {source}")]
+    Runtime {
+        host: String,
+        #[source]
+        source: RuntimeError,
+    },
 }
 
 impl Host {
@@ -144,6 +165,11 @@ impl Inventory {
     /// Returns the default template variable table for all remote hosts.
     pub fn vars(&self) -> &Table {
         &self.vars
+    }
+
+    /// Returns a string variable by dotted path.
+    pub fn get_var(&self, path: impl AsRef<str>) -> Result<String, VarLookupError> {
+        get_table_path_string(&self.vars, path.as_ref())
     }
 
     /// Returns the mutable default template variable table for all remote
@@ -259,6 +285,59 @@ impl Inventory {
     /// Returns all hosts in their declared order.
     pub fn hosts(&self) -> &[Host] {
         &self.hosts
+    }
+
+    /// Uploads a local controller file to selected hosts, rendering per-host
+    /// template paths when requested.
+    pub async fn upload_file<P, Q>(
+        &self, local_path: P, remote_path: Q, options: UploadOptions,
+    ) -> Result<Vec<InventoryUploadReport>, InventoryUploadError>
+    where
+        P: RenderPath,
+        Q: RenderPath,
+    {
+        let mut uploads = Vec::with_capacity(self.hosts.len());
+
+        for host in &self.hosts {
+            let context = host
+                .remote()
+                .build_context(Some(&self.vars), Some(host.name()));
+            let rendered_local_path = local_path.render_path(&context).map_err(|source| {
+                InventoryUploadError::Runtime {
+                    host: host.name().to_string(),
+                    source,
+                }
+            })?;
+            let UploadReport {
+                remote_path,
+                bytes_written,
+            } = host
+                .remote()
+                .upload_file(
+                    rendered_local_path.clone(),
+                    remote_path.render_path(&context).map_err(|source| {
+                        InventoryUploadError::Runtime {
+                            host: host.name().to_string(),
+                            source,
+                        }
+                    })?,
+                    options.clone(),
+                )
+                .await
+                .map_err(|source| InventoryUploadError::Runtime {
+                    host: host.name().to_string(),
+                    source,
+                })?;
+
+            uploads.push(InventoryUploadReport {
+                host: host.name().to_string(),
+                local_path: rendered_local_path,
+                remote_path,
+                bytes_written,
+            });
+        }
+
+        Ok(uploads)
     }
 
     /// Returns a mutable host by inventory name.
@@ -467,7 +546,7 @@ mod tests {
     }
 
     fn make_inventory() -> Inventory {
-        Inventory::new()
+        let mut inventory = Inventory::new()
             .add_group(
                 Group::new("prod")
                     .add_group(Group::new("web"))
@@ -479,7 +558,9 @@ mod tests {
             .add_host(
                 Host::with_remote("bastion-1", make_remote("10.0.0.31"))
                     .add_groups(["web", "monitoring"]),
-            )
+            );
+        inventory.set_var("region", "cn-north-1").unwrap();
+        inventory
     }
 
     const INVENTORY_TOML: &str = r#"
@@ -632,6 +713,13 @@ groups = ["web", "monitoring"]
             inventory.hosts()[0].remote().vars["app"]["port"].as_integer(),
             Some(8080)
         );
+    }
+
+    #[test]
+    fn inventory_get_var_reads_default_strings() {
+        let inventory = make_inventory();
+
+        assert_eq!(inventory.get_var("region").unwrap(), "cn-north-1");
     }
 
     #[test]

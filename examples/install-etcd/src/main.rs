@@ -1,7 +1,5 @@
-use anyhow::{Context, bail};
+use anyhow::bail;
 use rusible::{
-    Table,
-    Value,
     inventory::{Host, Inventory},
     meta::{
         CommandTask, CopyTask, DownloadTask, FileState, FileTask, ShellTask, StatTask,
@@ -9,9 +7,10 @@ use rusible::{
     },
     runtime::Runnable as _,
     target::Local,
+    TemplatePath, UploadOptions,
 };
 use std::{
-    fs,
+    env::temp_dir,
     net::IpAddr,
     path::{Path, PathBuf},
 };
@@ -47,17 +46,21 @@ async fn main() -> anyhow::Result<()> {
         bail!("inventory did not select any hosts from group `etcd`");
     }
 
-    let etcd_version = required_string(inventory.vars(), "etcd.version")?;
+    let etcd_version = inventory.get_var("etcd.version")?;
     let local_cert_dir = resolve_local_path(
         &manifest_dir,
-        &required_string(inventory.vars(), "etcd.local_cert_dir")?,
+        &inventory.get_var("etcd.local_cert_dir")?,
     );
-    let remote_ssl_dir = required_string(inventory.vars(), "etcd.remote_ssl_dir")?;
-    let remote_data_dir = required_string(inventory.vars(), "etcd.remote_data_dir")?;
-    let remote_service_path = required_string(inventory.vars(), "etcd.remote_service_path")?;
-    let cluster_state = required_string(inventory.vars(), "etcd.cluster_state")?;
-    let cluster_token = required_string(inventory.vars(), "etcd.cluster_token")?;
-    let local_download_dir = manifest_dir.join("workdir").join("downloads");
+    inventory.set_var(
+        "etcd.local_cert_dir",
+        local_cert_dir.display().to_string(),
+    )?;
+    let remote_ssl_dir = inventory.get_var("etcd.remote_ssl_dir")?;
+    let remote_data_dir = inventory.get_var("etcd.remote_data_dir")?;
+    let remote_service_path = inventory.get_var("etcd.remote_service_path")?;
+    let cluster_state = inventory.get_var("etcd.cluster_state")?;
+    let cluster_token = inventory.get_var("etcd.cluster_token")?;
+    let local_download_dir = temp_dir().join("downloads");
 
     let host_specs = inventory
         .hosts()
@@ -89,14 +92,13 @@ async fn main() -> anyhow::Result<()> {
         &mut local,
         &mut inventory,
         &local_download_dir,
-        &host_specs,
         &etcd_version,
         &remote_ssl_dir,
         &remote_data_dir,
         &remote_service_path,
     )
     .await?;
-    distribute_certificates(&mut inventory, &local_cert_dir, &remote_ssl_dir, &host_specs).await?;
+    distribute_certificates(&inventory).await?;
 
     inventory
         .run(TemplateTask {
@@ -282,7 +284,6 @@ async fn install_etcd_runtime(
     local: &mut Local,
     inventory: &mut Inventory,
     local_download_dir: &Path,
-    host_specs: &[EtcdHostSpec],
     version: &str,
     remote_ssl_dir: &str,
     remote_data_dir: &str,
@@ -339,15 +340,13 @@ async fn install_etcd_runtime(
         })
         .await?;
 
-    for host in host_specs {
-        let remote = inventory
-            .host_mut(&host.inventory_name)
-            .with_context(|| format!("missing inventory host {}", host.inventory_name))?
-            .remote_mut();
-
-        let upload = remote.upload_file(&local_archive_path, &archive_path).await?;
+    for upload in inventory
+        .upload_file(&local_archive_path, &archive_path, UploadOptions::default())
+        .await?
+    {
         info!(
-            host = %host.inventory_name,
+            host = %upload.host,
+            local_path = %upload.local_path.display(),
             remote_path = %upload.remote_path,
             bytes = upload.bytes_written,
             "uploaded etcd archive to remote host"
@@ -388,52 +387,78 @@ async fn install_etcd_runtime(
     Ok(())
 }
 
-async fn distribute_certificates(
-    inventory: &mut Inventory,
-    local_cert_dir: &Path,
-    remote_ssl_dir: &str,
-    host_specs: &[EtcdHostSpec],
-) -> anyhow::Result<()> {
-    let ca_cert = fs::read_to_string(local_cert_dir.join("ca.crt"))
-        .with_context(|| format!("reading {}", local_cert_dir.join("ca.crt").display()))?;
+async fn distribute_certificates(inventory: &Inventory) -> anyhow::Result<()> {
+    for upload in inventory
+        .upload_file(
+            TemplatePath::new("{{ etcd.local_cert_dir }}/ca.crt"),
+            TemplatePath::new("{{ etcd.remote_ssl_dir }}/ca.crt"),
+            UploadOptions {
+                owner: Some("etcd".to_string()),
+                group: Some("etcd".to_string()),
+                mode: Some("0600".to_string()),
+            },
+        )
+        .await?
+    {
+        info!(
+            host = %upload.host,
+            local_path = %upload.local_path.display(),
+            remote_path = %upload.remote_path,
+            bytes = upload.bytes_written,
+            "uploaded file to remote host"
+        );
+    }
 
-    for host in host_specs {
-        let server_cert = fs::read_to_string(local_cert_dir.join(format!("{}.crt", host.inventory_name)))
-            .with_context(|| format!("reading certificate for {}", host.inventory_name))?;
-        let server_key = fs::read_to_string(local_cert_dir.join(format!("{}.key", host.inventory_name)))
-            .with_context(|| format!("reading private key for {}", host.inventory_name))?;
+    for upload in inventory
+        .upload_file(
+            TemplatePath::new("{{ etcd.local_cert_dir }}/{{ rusible.host.name }}.crt"),
+            TemplatePath::new("{{ etcd.remote_ssl_dir }}/server.crt"),
+            UploadOptions {
+                owner: Some("etcd".to_string()),
+                group: Some("etcd".to_string()),
+                mode: Some("0600".to_string()),
+            },
+        )
+        .await?
+    {
+        info!(
+            host = %upload.host,
+            local_path = %upload.local_path.display(),
+            remote_path = %upload.remote_path,
+            bytes = upload.bytes_written,
+            "uploaded file to remote host"
+        );
+    }
 
-        let remote = inventory
-            .host_mut(&host.inventory_name)
-            .with_context(|| format!("missing inventory host {}", host.inventory_name))?
-            .remote_mut();
-
-        for (path, content) in [
-            (format!("{remote_ssl_dir}/ca.crt"), ca_cert.as_str()),
-            (format!("{remote_ssl_dir}/server.crt"), server_cert.as_str()),
-            (format!("{remote_ssl_dir}/server.key"), server_key.as_str()),
-        ] {
-            remote
-                .run(FileTask {
-                    path: PathBuf::from(path),
-                    state: FileState::File,
-                    owner: Some("etcd".to_string()),
-                    group: Some("etcd".to_string()),
-                    mode: Some("0600".to_string()),
-                    content: Some(content.to_string()),
-                })
-                .await?;
-        }
+    for upload in inventory
+        .upload_file(
+            TemplatePath::new("{{ etcd.local_cert_dir }}/{{ rusible.host.name }}.key"),
+            TemplatePath::new("{{ etcd.remote_ssl_dir }}/server.key"),
+            UploadOptions {
+                owner: Some("etcd".to_string()),
+                group: Some("etcd".to_string()),
+                mode: Some("0600".to_string()),
+            },
+        )
+        .await?
+    {
+        info!(
+            host = %upload.host,
+            local_path = %upload.local_path.display(),
+            remote_path = %upload.remote_path,
+            bytes = upload.bytes_written,
+            "uploaded file to remote host"
+        );
     }
 
     Ok(())
 }
 
 fn host_spec_from_inventory_host(host: &Host) -> anyhow::Result<EtcdHostSpec> {
-    let member_name = required_string(&host.remote().vars, "etcd.name")?;
-    let peer_host = optional_string(&host.remote().vars, "etcd.peer_host")
+    let member_name = host.remote().get_var("etcd.name")?;
+    let peer_host = optional_string(host.remote().vars(), "etcd.peer_host")
         .unwrap_or_else(|| host.remote().host.clone());
-    let client_host = optional_string(&host.remote().vars, "etcd.client_host")
+    let client_host = optional_string(host.remote().vars(), "etcd.client_host")
         .unwrap_or_else(|| peer_host.clone());
 
     Ok(EtcdHostSpec {
@@ -486,15 +511,11 @@ fn resolve_local_path(base_dir: &Path, configured: &str) -> PathBuf {
     }
 }
 
-fn required_string(vars: &Table, path: &str) -> anyhow::Result<String> {
-    optional_string(vars, path).with_context(|| format!("missing string variable `{path}`"))
-}
-
-fn optional_string(vars: &Table, path: &str) -> Option<String> {
+fn optional_string(vars: &rusible::Table, path: &str) -> Option<String> {
     lookup_value(vars, path).and_then(|value| value.as_str().map(ToOwned::to_owned))
 }
 
-fn lookup_value<'a>(vars: &'a Table, path: &str) -> Option<&'a Value> {
+fn lookup_value<'a>(vars: &'a rusible::Table, path: &str) -> Option<&'a rusible::Value> {
     let mut parts = path.split('.');
     let first = parts.next()?;
     let mut value = vars.get(first)?;

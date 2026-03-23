@@ -1,7 +1,7 @@
 use crate::{
     meta::{TaskRequest, TaskResult, TaskStatus},
     report::{RemoteRunReport, RuntimeError},
-    target::Remote,
+    target::{Remote, UploadOptions},
 };
 use russh::{
     ChannelMsg, Disconnect, client,
@@ -198,7 +198,7 @@ pub(crate) async fn initialize_remote_exec(
 }
 
 pub(crate) async fn upload_remote_bytes(
-    remote: &Remote, remote_path: &Path, bytes: &[u8],
+    remote: &Remote, remote_path: &Path, bytes: &[u8], options: &UploadOptions,
 ) -> Result<String, RuntimeError> {
     let mut session = RemoteSession::connect(remote).await?;
     let sftp = session.open_sftp().await?;
@@ -220,9 +220,59 @@ pub(crate) async fn upload_remote_bytes(
     file.write_all(bytes).await.map_err(sftp_error)?;
     file.shutdown().await.map_err(sftp_error)?;
     sftp.close().await.map_err(sftp_error)?;
+
+    apply_remote_upload_options(&mut session, &remote_path, options).await?;
     session.close().await?;
 
     Ok(remote_path)
+}
+
+async fn apply_remote_upload_options(
+    session: &mut RemoteSession, remote_path: &str, options: &UploadOptions,
+) -> Result<(), RuntimeError> {
+    if let Some(mode) = &options.mode {
+        session
+            .run_simple_command(&format!(
+                "chmod {} {}",
+                shell_quote(mode),
+                shell_quote(remote_path)
+            ))
+            .await?;
+    }
+
+    match (&options.owner, &options.group) {
+        (Some(owner), Some(group)) => {
+            session
+                .run_simple_command(&format!(
+                    "chown {}:{} {}",
+                    shell_quote(owner),
+                    shell_quote(group),
+                    shell_quote(remote_path)
+                ))
+                .await?;
+        }
+        (Some(owner), None) => {
+            session
+                .run_simple_command(&format!(
+                    "chown {} {}",
+                    shell_quote(owner),
+                    shell_quote(remote_path)
+                ))
+                .await?;
+        }
+        (None, Some(group)) => {
+            session
+                .run_simple_command(&format!(
+                    "chgrp {} {}",
+                    shell_quote(group),
+                    shell_quote(remote_path)
+                ))
+                .await?;
+        }
+        (None, None) => {}
+    }
+
+    Ok(())
 }
 
 pub(crate) async fn validate_remote_exec(

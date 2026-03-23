@@ -2286,6 +2286,7 @@ dependencies = [
 name = "rusible"
 version = "0.1.0"
 dependencies = [
+ "minijinja",
  "rusible-meta",
  "russh",
  "russh-sftp",

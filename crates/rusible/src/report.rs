@@ -89,6 +89,12 @@ pub enum RuntimeError {
         backtrace: Backtrace,
     },
 
+    #[error("template render failed: {message}")]
+    TemplateRender {
+        message: String,
+        backtrace: Backtrace,
+    },
+
     #[error("tokio task join failed: {source}")]
     TaskJoin {
         #[from]

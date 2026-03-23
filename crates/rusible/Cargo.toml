@@ -9,6 +9,7 @@ description = "[WIP] Writing infrastructure automation tasks in Rust."
 readme = "README.md"
 
 [dependencies]
+minijinja = { workspace = true }
 russh = { workspace = true }
 russh-sftp = { workspace = true }
 rusible-meta = { workspace = true }
