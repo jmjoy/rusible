@@ -3,9 +3,10 @@ mod task;
 use clap::Parser;
 use rusible_meta::{TaskRequest, TaskResult};
 use std::{
-    io::{self, Read},
+    io,
     process::ExitCode,
 };
+use tokio::io::AsyncReadExt;
 
 #[derive(Debug, Parser)]
 #[command(name = "rusible-exec", version, about, long_about = None)]
@@ -19,6 +20,9 @@ enum Error {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
 
+    #[error(transparent)]
+    Http(#[from] reqwest::Error),
+
     #[error("template rendering failed: {0}")]
     Template(#[from] minijinja::Error),
 
@@ -28,12 +32,31 @@ enum Error {
         status: i32,
         stderr: String,
     },
+
+    #[error("timed out waiting for {host}:{port} after {timeout_secs}s")]
+    WaitForTimeout {
+        host: String,
+        port: u16,
+        timeout_secs: u64,
+    },
 }
 
 fn main() -> ExitCode {
     let _ = Cli::parse();
 
-    match run() {
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            let result = TaskResult::failed(error.to_string());
+            print_result(&result);
+            return ExitCode::from(2);
+        }
+    };
+
+    match runtime.block_on(run()) {
         Ok(result) => {
             print_result(&result);
             match result.status {
@@ -53,12 +76,13 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<TaskResult, Error> {
+async fn run() -> Result<TaskResult, Error> {
     let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
+    let mut input = tokio::io::stdin();
+    input.read_to_string(&mut stdin).await?;
 
     let request: TaskRequest = serde_json::from_str(&stdin)?;
-    task::execute(request)
+    task::execute(request).await
 }
 
 fn print_result(result: &TaskResult) {

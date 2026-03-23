@@ -1,15 +1,17 @@
 use crate::Error;
 use rusible_meta::{CommandDetails, CommandTask, TaskDetails, TaskResult, TaskStatus};
-use std::{
-    io::{self, Write},
-    process::{Command, Stdio},
+use std::{io, process::Stdio};
+use tokio::{
+    fs,
+    io::AsyncWriteExt,
+    process::Command,
 };
 
-pub(crate) fn execute(task: &CommandTask) -> Result<TaskResult, Error> {
+pub(crate) async fn execute(task: &CommandTask) -> Result<TaskResult, Error> {
     let argv = resolve_argv(task)?;
 
     if let Some(path) = task.creates.as_deref() {
-        if path.exists() {
+        if fs::try_exists(path).await? {
             return Ok(task_result(
                 TaskStatus::Skipped,
                 format!(
@@ -28,7 +30,7 @@ pub(crate) fn execute(task: &CommandTask) -> Result<TaskResult, Error> {
     }
 
     if let Some(path) = task.removes.as_deref() {
-        if !path.exists() {
+        if !fs::try_exists(path).await? {
             return Ok(task_result(
                 TaskStatus::Skipped,
                 format!(
@@ -76,11 +78,11 @@ pub(crate) fn execute(task: &CommandTask) -> Result<TaskResult, Error> {
 
     if let Some(stdin) = &task.stdin {
         if let Some(mut child_stdin) = child.stdin.take() {
-            child_stdin.write_all(stdin.as_bytes())?;
+            child_stdin.write_all(stdin.as_bytes()).await?;
         }
     }
 
-    let output = child.wait_with_output()?;
+    let output = child.wait_with_output().await?;
     let rc = output.status.code();
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -175,8 +177,8 @@ mod tests {
         assert_eq!(argv, vec!["echo".to_string(), "hello world".to_string()]);
     }
 
-    #[test]
-    fn execute_command_task_skips_when_creates_exists() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn execute_command_task_skips_when_creates_exists() {
         let path = unique_temp_path("creates");
         fs::write(&path, "exists").unwrap();
 
@@ -188,6 +190,7 @@ mod tests {
             removes: None,
             stdin: None,
         })
+        .await
         .unwrap();
 
         assert_eq!(result.status, TaskStatus::Skipped);
@@ -195,8 +198,8 @@ mod tests {
         fs::remove_file(path).unwrap();
     }
 
-    #[test]
-    fn execute_command_task_marks_success_as_changed() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn execute_command_task_marks_success_as_changed() {
         let result = execute(&CommandTask {
             cmd: None,
             argv: Some(vec!["true".to_string()]),
@@ -205,6 +208,7 @@ mod tests {
             removes: None,
             stdin: None,
         })
+        .await
         .unwrap();
 
         assert_eq!(result.status, TaskStatus::Changed);
@@ -214,8 +218,8 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn execute_command_task_marks_non_zero_exit_as_failed() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn execute_command_task_marks_non_zero_exit_as_failed() {
         let result = execute(&CommandTask {
             cmd: None,
             argv: Some(vec!["false".to_string()]),
@@ -224,6 +228,7 @@ mod tests {
             removes: None,
             stdin: None,
         })
+        .await
         .unwrap();
 
         assert_eq!(result.status, TaskStatus::Failed);
@@ -240,4 +245,5 @@ mod tests {
             .as_nanos();
         env::temp_dir().join(format!("rusible-exec-{prefix}-{stamp}"))
     }
+
 }

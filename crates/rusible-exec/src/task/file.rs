@@ -1,9 +1,11 @@
 use crate::Error;
 use rusible_meta::{FileDetails, FileState, FileTask, TaskDetails, TaskResult, TaskStatus};
 use std::{
-    fs::{self, OpenOptions},
     os::unix::fs::PermissionsExt,
     path::Path,
+};
+use tokio::{
+    fs::{self, OpenOptions},
     process::Command,
 };
 
@@ -48,28 +50,34 @@ impl FileChangeSummary {
     }
 }
 
-pub(crate) fn execute(task: &FileTask) -> Result<TaskResult, Error> {
+pub(crate) async fn execute(task: &FileTask) -> Result<TaskResult, Error> {
     match task.state {
-        FileState::Absent => ensure_absent(&task.path),
-        FileState::Directory => ensure_directory(task),
-        FileState::File => ensure_file(task),
-        FileState::Touch => ensure_touch(task),
+        FileState::Absent => ensure_absent(&task.path).await,
+        FileState::Directory => ensure_directory(task).await,
+        FileState::File => ensure_file(task).await,
+        FileState::Touch => ensure_touch(task).await,
     }
 }
 
-fn ensure_absent(path: &Path) -> Result<TaskResult, Error> {
-    if !path.exists() {
+async fn ensure_absent(path: &Path) -> Result<TaskResult, Error> {
+    let metadata = match fs::symlink_metadata(path).await {
+        Ok(metadata) => Some(metadata),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.into()),
+    };
+
+    let Some(metadata) = metadata else {
         return Ok(task_result(
             TaskStatus::Ok,
             format!("{} is already absent", path.display()),
             FileChangeSummary::default().into_file_details(path, FileState::Absent),
         ));
-    }
+    };
 
-    if path.is_dir() && !path.is_symlink() {
-        fs::remove_dir_all(path)?;
+    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        fs::remove_dir_all(path).await?;
     } else {
-        fs::remove_file(path)?;
+        fs::remove_file(path).await?;
     }
 
     Ok(task_result(
@@ -83,17 +91,17 @@ fn ensure_absent(path: &Path) -> Result<TaskResult, Error> {
     ))
 }
 
-fn ensure_directory(task: &FileTask) -> Result<TaskResult, Error> {
+async fn ensure_directory(task: &FileTask) -> Result<TaskResult, Error> {
     let mut changes = FileChangeSummary::default();
 
-    if !task.path.is_dir() {
-        fs::create_dir_all(&task.path)?;
+    if !matches!(fs::symlink_metadata(&task.path).await, Ok(metadata) if metadata.is_dir()) {
+        fs::create_dir_all(&task.path).await?;
         changes.created = true;
     }
 
-    changes.mode_changed = apply_mode(&task.path, task.mode.as_deref())?;
+    changes.mode_changed = apply_mode(&task.path, task.mode.as_deref()).await?;
     changes.ownership_changed =
-        apply_owner_group(&task.path, task.owner.as_deref(), task.group.as_deref())?;
+        apply_owner_group(&task.path, task.owner.as_deref(), task.group.as_deref()).await?;
 
     let status = if changes.any() {
         TaskStatus::Changed
@@ -113,35 +121,36 @@ fn ensure_directory(task: &FileTask) -> Result<TaskResult, Error> {
     ))
 }
 
-fn ensure_file(task: &FileTask) -> Result<TaskResult, Error> {
+async fn ensure_file(task: &FileTask) -> Result<TaskResult, Error> {
     let mut changes = FileChangeSummary::default();
 
     if let Some(parent) = task.path.parent() {
-        if !parent.as_os_str().is_empty() && !parent.exists() {
-            fs::create_dir_all(parent)?;
+        if !parent.as_os_str().is_empty() && !fs::try_exists(parent).await? {
+            fs::create_dir_all(parent).await?;
         }
     }
 
-    if !task.path.exists() {
+    if !fs::try_exists(&task.path).await? {
         OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(false)
-            .open(&task.path)?;
+            .open(&task.path)
+            .await?;
         changes.created = true;
     }
 
     if let Some(content) = &task.content {
-        let current = fs::read_to_string(&task.path).ok();
+        let current = fs::read_to_string(&task.path).await.ok();
         if current.as_deref() != Some(content.as_str()) {
-            fs::write(&task.path, content)?;
+            fs::write(&task.path, content).await?;
             changes.content_changed = true;
         }
     }
 
-    changes.mode_changed = apply_mode(&task.path, task.mode.as_deref())?;
+    changes.mode_changed = apply_mode(&task.path, task.mode.as_deref()).await?;
     changes.ownership_changed =
-        apply_owner_group(&task.path, task.owner.as_deref(), task.group.as_deref())?;
+        apply_owner_group(&task.path, task.owner.as_deref(), task.group.as_deref()).await?;
 
     let status = if changes.any() {
         TaskStatus::Changed
@@ -161,16 +170,16 @@ fn ensure_file(task: &FileTask) -> Result<TaskResult, Error> {
     ))
 }
 
-fn ensure_touch(task: &FileTask) -> Result<TaskResult, Error> {
-    let existed = task.path.exists();
+async fn ensure_touch(task: &FileTask) -> Result<TaskResult, Error> {
+    let existed = fs::try_exists(&task.path).await?;
 
     if let Some(parent) = task.path.parent() {
-        if !parent.as_os_str().is_empty() && !parent.exists() {
-            fs::create_dir_all(parent)?;
+        if !parent.as_os_str().is_empty() && !fs::try_exists(parent).await? {
+            fs::create_dir_all(parent).await?;
         }
     }
 
-    let status = Command::new("touch").arg(&task.path).status()?;
+    let status = Command::new("touch").arg(&task.path).status().await?;
     if !status.success() {
         return Err(Error::CommandFailed {
             program: "touch".to_string(),
@@ -183,9 +192,9 @@ fn ensure_touch(task: &FileTask) -> Result<TaskResult, Error> {
         created: !existed,
         ..FileChangeSummary::default()
     };
-    changes.mode_changed = apply_mode(&task.path, task.mode.as_deref())?;
+    changes.mode_changed = apply_mode(&task.path, task.mode.as_deref()).await?;
     changes.ownership_changed =
-        apply_owner_group(&task.path, task.owner.as_deref(), task.group.as_deref())?;
+        apply_owner_group(&task.path, task.owner.as_deref(), task.group.as_deref()).await?;
 
     let status = if changes.any() {
         TaskStatus::Changed
@@ -205,7 +214,7 @@ fn ensure_touch(task: &FileTask) -> Result<TaskResult, Error> {
     ))
 }
 
-pub(crate) fn apply_mode(path: &Path, mode: Option<&str>) -> Result<bool, Error> {
+pub(crate) async fn apply_mode(path: &Path, mode: Option<&str>) -> Result<bool, Error> {
     let Some(mode) = mode else {
         return Ok(false);
     };
@@ -217,7 +226,7 @@ pub(crate) fn apply_mode(path: &Path, mode: Option<&str>) -> Result<bool, Error>
         )
     })?;
 
-    let metadata = fs::metadata(path)?;
+    let metadata = fs::metadata(path).await?;
     let current = metadata.permissions().mode() & 0o7777;
     if current == desired {
         return Ok(false);
@@ -225,11 +234,11 @@ pub(crate) fn apply_mode(path: &Path, mode: Option<&str>) -> Result<bool, Error>
 
     let mut permissions = metadata.permissions();
     permissions.set_mode(desired);
-    fs::set_permissions(path, permissions)?;
+    fs::set_permissions(path, permissions).await?;
     Ok(true)
 }
 
-pub(crate) fn apply_owner_group(
+pub(crate) async fn apply_owner_group(
     path: &Path,
     owner: Option<&str>,
     group: Option<&str>,
@@ -238,7 +247,7 @@ pub(crate) fn apply_owner_group(
         return Ok(false);
     };
 
-    let output = Command::new("chown").arg(&spec).arg(path).output()?;
+    let output = Command::new("chown").arg(&spec).arg(path).output().await?;
     if !output.status.success() {
         return Err(Error::CommandFailed {
             program: "chown".to_string(),

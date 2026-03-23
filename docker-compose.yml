@@ -1,9 +1,73 @@
 services:
-  sshd:
+  sshd-1:
     build:
       context: .
       dockerfile: docker/sshd/Dockerfile
+    hostname: sshd-1
     ports:
-      - "2222-2224:22" 
-    deploy:
-      replicas: 3
+      - "2222:22"
+    cgroup: host
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /run
+      - /run/lock
+      - /tmp
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    stop_signal: SIGRTMIN+3
+    stop_grace_period: 30s
+    networks:
+      rusible:
+        aliases:
+          - sshd-1
+
+  sshd-2:
+    build:
+      context: .
+      dockerfile: docker/sshd/Dockerfile
+    hostname: sshd-2
+    ports:
+      - "2223:22"
+    cgroup: host
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /run
+      - /run/lock
+      - /tmp
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    stop_signal: SIGRTMIN+3
+    stop_grace_period: 30s
+    networks:
+      rusible:
+        aliases:
+          - sshd-2
+
+  sshd-3:
+    build:
+      context: .
+      dockerfile: docker/sshd/Dockerfile
+    hostname: sshd-3
+    ports:
+      - "2224:22"
+    cgroup: host
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /run
+      - /run/lock
+      - /tmp
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    stop_signal: SIGRTMIN+3
+    stop_grace_period: 30s
+    networks:
+      rusible:
+        aliases:
+          - sshd-3
+
+networks:
+  rusible:
+    driver: bridge

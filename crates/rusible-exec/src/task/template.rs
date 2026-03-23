@@ -2,36 +2,37 @@ use super::file;
 use crate::Error;
 use minijinja::{Environment, UndefinedBehavior};
 use rusible_meta::{TaskDetails, TaskResult, TaskStatus, TemplateDetails, TemplateTask};
-use std::{fs, fs::OpenOptions};
+use tokio::fs::{self, OpenOptions};
 
-pub(crate) fn execute(task: &TemplateTask, context: &toml::Table) -> Result<TaskResult, Error> {
+pub(crate) async fn execute(task: &TemplateTask, context: &toml::Table) -> Result<TaskResult, Error> {
     let mut changes = file::FileChangeSummary::default();
     let rendered = render_template(&task.content, context)?;
 
     if let Some(parent) = task.dest.parent() {
-        if !parent.as_os_str().is_empty() && !parent.exists() {
-            fs::create_dir_all(parent)?;
+        if !parent.as_os_str().is_empty() && !fs::try_exists(parent).await? {
+            fs::create_dir_all(parent).await?;
         }
     }
 
-    if !task.dest.exists() {
+    if !fs::try_exists(&task.dest).await? {
         OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(false)
-            .open(&task.dest)?;
+            .open(&task.dest)
+            .await?;
         changes.created = true;
     }
 
-    let current = fs::read_to_string(&task.dest).ok();
+    let current = fs::read_to_string(&task.dest).await.ok();
     if current.as_deref() != Some(rendered.as_str()) {
-        fs::write(&task.dest, &rendered)?;
+        fs::write(&task.dest, &rendered).await?;
         changes.content_changed = true;
     }
 
-    changes.mode_changed = file::apply_mode(&task.dest, task.mode.as_deref())?;
+    changes.mode_changed = file::apply_mode(&task.dest, task.mode.as_deref()).await?;
     changes.ownership_changed =
-        file::apply_owner_group(&task.dest, task.owner.as_deref(), task.group.as_deref())?;
+        file::apply_owner_group(&task.dest, task.owner.as_deref(), task.group.as_deref()).await?;
 
     let status = if changes.any() {
         TaskStatus::Changed

@@ -8,7 +8,8 @@ The workspace is currently split into three crates:
 - `rusible-exec`: target-side executor binary that applies serialized tasks
 - `rusible-meta`: shared serializable task definitions used by both sides
 
-Currently supported tasks include file, template, and command execution.
+Currently supported tasks include file, template, command, copy, unarchive,
+shell, stat, user, systemd, and wait-for execution.
 
 ## Workspace layout
 
@@ -16,6 +17,8 @@ Currently supported tasks include file, template, and command execution.
 - `crates/rusible-exec`: executor binary crate
 - `crates/rusible-meta`: shared metadata crate
 - `examples/hello-world`: end-to-end example using the workspace
+- `examples/hello-inventory`: inventory-driven example
+- `examples/install-etcd`: etcd installation example with local certificate generation
 
 ## Development
 

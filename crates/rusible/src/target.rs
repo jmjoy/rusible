@@ -2,7 +2,8 @@ use crate::{
     VarError,
     exec::{
         ensure_local_exec, execute_remote_task, initialize_remote_exec, run_exec_process,
-        run_named_remote_with_json, run_remote_with_json, validate_local_exec,
+        run_named_remote_with_json, run_remote_with_json, upload_remote_bytes,
+        validate_local_exec,
         validate_remote_exec,
     },
     inventory::Inventory,
@@ -41,6 +42,13 @@ pub struct Remote {
     pub key: Option<PathBuf>,
     pub vars: Table,
     pub(crate) remote_exec_path: Option<String>,
+}
+
+/// Result of uploading controller-side bytes to a remote host path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UploadReport {
+    pub remote_path: String,
+    pub bytes_written: usize,
 }
 
 impl Local {
@@ -140,6 +148,33 @@ impl Remote {
     /// present.
     pub fn remove_var(&mut self, path: impl AsRef<str>) -> Result<Option<Value>, VarError> {
         remove_table_path(&mut self.vars, path.as_ref())
+    }
+
+    /// Uploads a local file from the controller to a path on the remote host.
+    pub async fn upload_file<P, Q>(
+        &self, local_path: P, remote_path: Q,
+    ) -> Result<UploadReport, RuntimeError>
+    where
+        P: AsRef<Path>,
+        Q: AsRef<Path>,
+    {
+        let bytes = tokio::fs::read(local_path.as_ref()).await?;
+        self.upload_bytes(remote_path, &bytes).await
+    }
+
+    /// Uploads controller-provided bytes to a path on the remote host.
+    pub async fn upload_bytes<P>(
+        &self, remote_path: P, bytes: &[u8],
+    ) -> Result<UploadReport, RuntimeError>
+    where
+        P: AsRef<Path>,
+    {
+        let remote_path = upload_remote_bytes(self, remote_path.as_ref(), bytes).await?;
+
+        Ok(UploadReport {
+            remote_path,
+            bytes_written: bytes.len(),
+        })
     }
 }
 

@@ -3,8 +3,12 @@
 mod task;
 
 pub use task::{
-	CommandDetails, CommandTask, FileDetails, FileState, FileTask, Task, TaskDetails,
-	TaskRequest, TaskResult, TaskSpec, TaskStatus, TemplateDetails, TemplateTask,
+	DownloadDetails, DownloadTask,
+	CommandDetails, CommandTask, CopyDetails, CopyTask, FileDetails, FileState,
+	FileTask, ShellDetails, ShellTask, StatDetails, StatTask, SystemdDetails,
+	SystemdState, SystemdTask, Task, TaskDetails, TaskRequest, TaskResult, TaskSpec,
+	TaskStatus, TemplateDetails, TemplateTask, UnarchiveDetails, UnarchiveTask,
+	UserDetails, UserTask, WaitForDetails, WaitForTask,
 };
 
 #[cfg(test)]

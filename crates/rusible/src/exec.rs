@@ -197,6 +197,34 @@ pub(crate) async fn initialize_remote_exec(
     Ok(exec_path)
 }
 
+pub(crate) async fn upload_remote_bytes(
+    remote: &Remote, remote_path: &Path, bytes: &[u8],
+) -> Result<String, RuntimeError> {
+    let mut session = RemoteSession::connect(remote).await?;
+    let sftp = session.open_sftp().await?;
+
+    if let Some(parent) = remote_path.parent() {
+        ensure_remote_dir_all(&sftp, parent).await?;
+    }
+
+    let remote_path = path_to_string(remote_path);
+    debug!(
+        host = %remote.host,
+        port = remote.port,
+        remote_path = %remote_path,
+        bytes = bytes.len(),
+        "uploading local file to remote host"
+    );
+
+    let mut file = sftp.create(remote_path.clone()).await.map_err(sftp_error)?;
+    file.write_all(bytes).await.map_err(sftp_error)?;
+    file.shutdown().await.map_err(sftp_error)?;
+    sftp.close().await.map_err(sftp_error)?;
+    session.close().await?;
+
+    Ok(remote_path)
+}
+
 pub(crate) async fn validate_remote_exec(
     remote: &Remote, exec_path: &str,
 ) -> Result<(), RuntimeError> {

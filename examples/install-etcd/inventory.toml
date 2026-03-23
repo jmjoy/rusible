@@ -1,0 +1,38 @@
+[vars.etcd]
+version = "v3.5.9"
+local_cert_dir = "/tmp/certs"
+remote_ssl_dir = "/etc/etcd/ssl"
+remote_data_dir = "/var/lib/etcd"
+remote_service_path = "/etc/systemd/system/etcd.service"
+cluster_token = "rusible-etcd-cluster"
+cluster_state = "new"
+
+[[groups]]
+name = "etcd"
+
+[[hosts]]
+name = "etcd-1"
+host = "127.0.0.1"
+port = 2222
+user = "root"
+password = "123456"
+vars = { etcd = { name = "etcd-1", peer_host = "sshd-1", client_host = "sshd-1" } }
+groups = ["etcd"]
+
+[[hosts]]
+name = "etcd-2"
+host = "127.0.0.1"
+port = 2223
+user = "root"
+password = "123456"
+vars = { etcd = { name = "etcd-2", peer_host = "sshd-2", client_host = "sshd-2" } }
+groups = ["etcd"]
+
+[[hosts]]
+name = "etcd-3"
+host = "127.0.0.1"
+port = 2224
+user = "root"
+password = "123456"
+vars = { etcd = { name = "etcd-3", peer_host = "sshd-3", client_host = "sshd-3" } }
+groups = ["etcd"]

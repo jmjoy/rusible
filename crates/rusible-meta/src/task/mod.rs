@@ -1,10 +1,26 @@
 pub mod command;
+pub mod copy;
+pub mod download;
 pub mod file;
+pub mod shell;
+pub mod stat;
+pub mod systemd;
 pub mod template;
+pub mod unarchive;
+pub mod user;
+pub mod wait_for;
 
 pub use command::{CommandDetails, CommandTask};
+pub use copy::{CopyDetails, CopyTask};
+pub use download::{DownloadDetails, DownloadTask};
 pub use file::{FileDetails, FileState, FileTask};
+pub use shell::{ShellDetails, ShellTask};
+pub use stat::{StatDetails, StatTask};
+pub use systemd::{SystemdDetails, SystemdState, SystemdTask};
 pub use template::{TemplateDetails, TemplateTask};
+pub use unarchive::{UnarchiveDetails, UnarchiveTask};
+pub use user::{UserDetails, UserTask};
+pub use wait_for::{WaitForDetails, WaitForTask};
 
 use serde::{Deserialize, Serialize};
 use toml::Table;
@@ -19,6 +35,22 @@ pub enum Task {
     Template(TemplateTask),
     /// Executes a command without invoking a shell.
     Command(CommandTask),
+    /// Copies a file on the target host.
+    Copy(CopyTask),
+    /// Downloads a file from an HTTP(S) endpoint onto the target host.
+    Download(DownloadTask),
+    /// Executes a command through the system shell.
+    Shell(ShellTask),
+    /// Collects file-system metadata for a path.
+    Stat(StatTask),
+    /// Ensures a local user account exists.
+    User(UserTask),
+    /// Applies service state through systemd.
+    Systemd(SystemdTask),
+    /// Extracts an archive that already exists on the target host.
+    Unarchive(UnarchiveTask),
+    /// Waits until a TCP port becomes reachable.
+    WaitFor(WaitForTask),
 }
 
 impl From<FileTask> for Task {
@@ -36,6 +68,54 @@ impl From<TemplateTask> for Task {
 impl From<CommandTask> for Task {
     fn from(task: CommandTask) -> Self {
         Self::Command(task)
+    }
+}
+
+impl From<CopyTask> for Task {
+    fn from(task: CopyTask) -> Self {
+        Self::Copy(task)
+    }
+}
+
+impl From<DownloadTask> for Task {
+    fn from(task: DownloadTask) -> Self {
+        Self::Download(task)
+    }
+}
+
+impl From<ShellTask> for Task {
+    fn from(task: ShellTask) -> Self {
+        Self::Shell(task)
+    }
+}
+
+impl From<StatTask> for Task {
+    fn from(task: StatTask) -> Self {
+        Self::Stat(task)
+    }
+}
+
+impl From<UserTask> for Task {
+    fn from(task: UserTask) -> Self {
+        Self::User(task)
+    }
+}
+
+impl From<SystemdTask> for Task {
+    fn from(task: SystemdTask) -> Self {
+        Self::Systemd(task)
+    }
+}
+
+impl From<UnarchiveTask> for Task {
+    fn from(task: UnarchiveTask) -> Self {
+        Self::Unarchive(task)
+    }
+}
+
+impl From<WaitForTask> for Task {
+    fn from(task: WaitForTask) -> Self {
+        Self::WaitFor(task)
     }
 }
 
@@ -81,6 +161,14 @@ pub enum TaskDetails {
     File(FileDetails),
     Template(TemplateDetails),
     Command(CommandDetails),
+    Copy(CopyDetails),
+    Download(DownloadDetails),
+    Shell(ShellDetails),
+    Stat(StatDetails),
+    User(UserDetails),
+    Systemd(SystemdDetails),
+    Unarchive(UnarchiveDetails),
+    WaitFor(WaitForDetails),
 }
 
 impl TaskDetails {
@@ -89,6 +177,14 @@ impl TaskDetails {
             Self::File(_) => "file",
             Self::Template(_) => "template",
             Self::Command(_) => "command",
+            Self::Copy(_) => "copy",
+            Self::Download(_) => "download",
+            Self::Shell(_) => "shell",
+            Self::Stat(_) => "stat",
+            Self::User(_) => "user",
+            Self::Systemd(_) => "systemd",
+            Self::Unarchive(_) => "unarchive",
+            Self::WaitFor(_) => "wait_for",
         }
     }
 }
