@@ -12,6 +12,7 @@ use std::{
 };
 use tokio::fs;
 use toml::{Table, Value};
+use tracing::info_span;
 
 /// A named host inside an [`Inventory`].
 ///
@@ -296,9 +297,13 @@ impl Inventory {
     ) -> Result<Vec<InventoryUploadReport>, InventoryUploadError> {
         let local_path = local_path.into();
         let remote_path = remote_path.into();
+        let upload_span = info_span!("UPLOAD", host_count = self.hosts.len());
+        let _upload_guard = upload_span.enter();
         let mut uploads = Vec::with_capacity(self.hosts.len());
 
         for host in &self.hosts {
+            let host_span = info_span!(parent: &upload_span, "HOST", host = %host.name());
+            let _host_guard = host_span.enter();
             let context = host
                 .remote()
                 .build_context(Some(&self.vars), Some(host.name()));

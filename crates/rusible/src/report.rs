@@ -452,13 +452,7 @@ fn format_batch_report<D>(report: &BatchRunReport<D>) -> String {
 }
 
 fn format_task_result<D>(result: &TaskResult<D>) -> String {
-    let status = match result.status {
-        TaskStatus::Ok => "ok",
-        TaskStatus::Changed => "changed",
-        TaskStatus::Skipped => "skipped",
-        TaskStatus::Failed => "failed",
-        TaskStatus::Unreachable => "unreachable",
-    };
+    let status = result.status.as_str();
 
     match result.message.as_deref() {
         Some(message) if !message.is_empty() => format!("{status}: {message}"),

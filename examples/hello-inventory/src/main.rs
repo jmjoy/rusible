@@ -1,18 +1,16 @@
-use rusible::{inventory::Inventory, meta::TemplateTask, runtime::Runnable as _};
+use rusible::{
+    init_forest_logging,
+    inventory::Inventory,
+    meta::TemplateTask,
+    runtime::Runnable as _,
+};
 use std::path::PathBuf;
-use tracing::info;
-use tracing_subscriber::EnvFilter;
 
 const RUSIBLE_EXEC_BYTES: &[u8] = include_bytes!(env!("CARGO_BIN_FILE_RUSIBLE_EXEC"));
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info,rusible=debug")),
-        )
-        .init();
+    init_forest_logging("info,rusible=debug");
 
     let inventory_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("inventory.toml");
     let mut inventory = Inventory::from_toml_path(&inventory_path)
@@ -26,16 +24,17 @@ async fn main() -> anyhow::Result<()> {
         .remote_mut()
         .set_var("app.role", "ops-web")?;
 
-    info!(
-        inventory = %inventory_path.display(),
-        selected_hosts = inventory.len(),
-        "loaded inventory and selected hosts"
+    eprintln!(
+        "loaded inventory {} with {} selected hosts",
+        inventory_path.display(),
+        inventory.len(),
     );
 
     inventory.init(RUSIBLE_EXEC_BYTES).await?;
 
-    let report = inventory
+    inventory
         .run(TemplateTask {
+            name: Some("Render inventory hello template".to_string()),
             dest: PathBuf::from("/tmp/hello-inventory.txt"),
             content: concat!(
                 "hello from {{ app.name }}\n",
@@ -52,16 +51,6 @@ async fn main() -> anyhow::Result<()> {
             mode: Some("0644".to_string()),
         })
         .await?;
-
-    for result in report.0 {
-        info!(
-            host = %result.host,
-            exec_path = %result.exec_path,
-            status = ?result.result.status,
-            message = result.result.message.as_deref().unwrap_or(""),
-            "template task finished"
-        );
-    }
 
     Ok(())
 }

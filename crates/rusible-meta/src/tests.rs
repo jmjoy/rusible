@@ -5,6 +5,7 @@ use toml::Table;
 #[test]
 fn task_round_trips_as_json() {
     let task = Task::File(FileTask {
+        name: Some("ensure example file".to_string()),
         path: PathBuf::from("/tmp/example"),
         state: FileState::File,
         owner: Some("root".to_string()),
@@ -29,6 +30,7 @@ fn task_request_round_trips_as_json() {
 
     let request = TaskRequest::new(
         Task::Template(TemplateTask {
+            name: Some("render example template".to_string()),
             dest: PathBuf::from("/tmp/example"),
             content: "hello {{ region }}".to_string(),
             owner: None,
@@ -65,6 +67,7 @@ fn task_result_with_details_round_trips_as_json() {
 #[test]
 fn file_task_converts_into_task() {
     let task: Task = FileTask {
+        name: None,
         path: PathBuf::from("/tmp/example"),
         state: FileState::Touch,
         owner: None,
@@ -80,6 +83,7 @@ fn file_task_converts_into_task() {
 #[test]
 fn template_task_converts_into_task() {
     let task: Task = TemplateTask {
+        name: None,
         dest: PathBuf::from("/tmp/example"),
         content: "hello".to_string(),
         owner: None,
@@ -94,6 +98,7 @@ fn template_task_converts_into_task() {
 #[test]
 fn command_task_converts_into_task() {
     let task: Task = CommandTask {
+        name: None,
         cmd: Some("echo hello".to_string()),
         argv: None,
         chdir: Some(PathBuf::from("/tmp")),
@@ -109,6 +114,7 @@ fn command_task_converts_into_task() {
 #[test]
 fn copy_task_converts_into_task() {
     let task: Task = CopyTask {
+        name: None,
         src: PathBuf::from("/tmp/src").into(),
         dest: PathBuf::from("/tmp/dest").into(),
         owner: None,
@@ -123,6 +129,7 @@ fn copy_task_converts_into_task() {
 #[test]
 fn download_task_converts_into_task() {
     let task: Task = DownloadTask {
+        name: None,
         url: "https://example.com/archive.tar.gz".to_string(),
         dest: PathBuf::from("/tmp/archive.tar.gz").into(),
         force: false,
@@ -153,6 +160,7 @@ fn template_path_round_trips_as_json() {
 #[test]
 fn shell_task_converts_into_task() {
     let task: Task = ShellTask {
+        name: None,
         cmd: "echo hello | cat".to_string(),
         chdir: Some(PathBuf::from("/tmp")),
         creates: None,
@@ -167,6 +175,7 @@ fn shell_task_converts_into_task() {
 #[test]
 fn stat_task_converts_into_task() {
     let task: Task = StatTask {
+        name: None,
         path: PathBuf::from("/tmp/example"),
     }
     .into();
@@ -177,6 +186,7 @@ fn stat_task_converts_into_task() {
 #[test]
 fn systemd_task_converts_into_task() {
     let task: Task = SystemdTask {
+        name: None,
         unit: "etcd.service".to_string(),
         daemon_reload: true,
         enabled: Some(true),
@@ -190,6 +200,7 @@ fn systemd_task_converts_into_task() {
 #[test]
 fn unarchive_task_converts_into_task() {
     let task: Task = UnarchiveTask {
+        name: None,
         src: PathBuf::from("/tmp/archive.tar.gz"),
         dest: PathBuf::from("/tmp"),
         creates: Some(PathBuf::from("/tmp/bin")),
@@ -202,7 +213,8 @@ fn unarchive_task_converts_into_task() {
 #[test]
 fn user_task_converts_into_task() {
     let task: Task = UserTask {
-        name: "etcd".to_string(),
+        name: None,
+        username: "etcd".to_string(),
         system: true,
         create_home: false,
         shell: Some(PathBuf::from("/usr/sbin/nologin")),
@@ -216,6 +228,7 @@ fn user_task_converts_into_task() {
 #[test]
 fn wait_for_task_converts_into_task() {
     let task: Task = WaitForTask {
+        name: None,
         port: 2379,
         host: Some("127.0.0.1".to_string()),
         delay_secs: 1,

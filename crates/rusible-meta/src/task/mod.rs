@@ -23,6 +23,7 @@ pub use user::{UserDetails, UserTask};
 pub use wait_for::{WaitForDetails, WaitForTask};
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use toml::Table;
 
 /// Describes a task that can be executed by `rusible-exec`.
@@ -119,6 +120,44 @@ impl From<WaitForTask> for Task {
     }
 }
 
+impl Task {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::File(_) => "file",
+            Self::Template(_) => "template",
+            Self::Command(_) => "command",
+            Self::Copy(_) => "copy",
+            Self::Download(_) => "download",
+            Self::Shell(_) => "shell",
+            Self::Stat(_) => "stat",
+            Self::User(_) => "user",
+            Self::Systemd(_) => "systemd",
+            Self::Unarchive(_) => "unarchive",
+            Self::WaitFor(_) => "wait_for",
+        }
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            Self::File(task) => task.name.as_deref(),
+            Self::Template(task) => task.name.as_deref(),
+            Self::Command(task) => task.name.as_deref(),
+            Self::Copy(task) => task.name.as_deref(),
+            Self::Download(task) => task.name.as_deref(),
+            Self::Shell(task) => task.name.as_deref(),
+            Self::Stat(task) => task.name.as_deref(),
+            Self::User(task) => task.name.as_deref(),
+            Self::Systemd(task) => task.name.as_deref(),
+            Self::Unarchive(task) => task.name.as_deref(),
+            Self::WaitFor(task) => task.name.as_deref(),
+        }
+    }
+
+    pub fn display_name(&self) -> &str {
+        self.name().unwrap_or_else(|| self.kind())
+    }
+}
+
 /// Serialized task request sent from the controller to `rusible-exec`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskRequest {
@@ -206,6 +245,24 @@ pub struct TaskResult<D = TaskDetails> {
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<D>,
+}
+
+impl TaskStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Changed => "changed",
+            Self::Skipped => "skipped",
+            Self::Failed => "failed",
+            Self::Unreachable => "unreachable",
+        }
+    }
+}
+
+impl fmt::Display for TaskStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 impl<D> TaskResult<D> {

@@ -76,7 +76,7 @@ pub(crate) async fn ensure_local_exec(exec_bytes: &[u8]) -> Result<PathBuf, Runt
     let exec_path = exec_dir.join("rusible-exec");
 
     if fs::try_exists(&exec_path).await? {
-        debug!(exec_path = %exec_path.display(), "reusing cached local rusible-exec");
+        debug!("reusing cached local rusible-exec");
         return Ok(exec_path);
     }
 
@@ -87,7 +87,7 @@ pub(crate) async fn ensure_local_exec(exec_bytes: &[u8]) -> Result<PathBuf, Runt
     permissions.set_mode(0o700);
     fs::set_permissions(&exec_path, permissions).await?;
 
-    debug!(exec_path = %exec_path.display(), "wrote local rusible-exec to cache");
+    debug!("wrote local rusible-exec to cache");
 
     Ok(exec_path)
 }
@@ -114,7 +114,7 @@ async fn run_exec_process_with_json(
     exec_path: &Path, task_json: &str,
 ) -> Result<TaskResult, RuntimeError> {
     let printable = path_to_string(exec_path);
-    debug!(exec_path = %exec_path.display(), payload_bytes = task_json.len(), "spawning local rusible-exec process");
+    debug!(payload_bytes = task_json.len(), "spawning local rusible-exec process");
     let mut command = Command::new(exec_path);
     command
         .stdin(Stdio::piped())
@@ -180,12 +180,12 @@ pub(crate) async fn initialize_remote_exec(
         .await
         .map_err(sftp_error)?
     {
-        debug!(host = %remote.host, port = remote.port, exec_path = %exec_path, "uploading rusible-exec to remote host");
+        debug!(host = %remote.host, port = remote.port, "uploading rusible-exec to remote host");
         let mut file = sftp.create(exec_path.clone()).await.map_err(sftp_error)?;
         file.write_all(exec_bytes).await.map_err(sftp_error)?;
         file.shutdown().await.map_err(sftp_error)?;
     } else {
-        debug!(host = %remote.host, port = remote.port, exec_path = %exec_path, "reusing cached remote rusible-exec");
+        debug!(host = %remote.host, port = remote.port, "reusing cached remote rusible-exec");
     }
     sftp.close().await.map_err(sftp_error)?;
 
@@ -276,7 +276,7 @@ pub(crate) async fn validate_remote_exec(
     let mut session = RemoteSession::connect(remote).await?;
     let quoted_exec_path = crate::shell_quote(exec_path)?;
     let command = format!("{quoted_exec_path} --version");
-    debug!(host = %remote.host, port = remote.port, exec_path = %exec_path, "validating remote rusible-exec");
+    debug!(host = %remote.host, port = remote.port, "validating remote rusible-exec");
     let output = session.run_command(&command, None).await?;
     session.close().await?;
 
@@ -292,7 +292,7 @@ pub(crate) async fn execute_remote_task(
     remote: &Remote, exec_path: &str, task_json: &str,
 ) -> Result<TaskResult, RuntimeError> {
     let mut session = RemoteSession::connect(remote).await?;
-    debug!(host = %remote.host, port = remote.port, exec_path = %exec_path, payload_bytes = task_json.len(), "executing remote task");
+    debug!(host = %remote.host, port = remote.port, payload_bytes = task_json.len(), "executing remote task");
     let quoted_exec_path = crate::shell_quote(exec_path)?;
     let output = session
         .run_command(&quoted_exec_path, Some(task_json.as_bytes()))

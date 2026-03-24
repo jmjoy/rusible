@@ -3,12 +3,12 @@ use rusible_meta::{TaskDetails, TaskResult, TaskStatus, UserDetails, UserTask};
 use tokio::process::Command;
 
 pub(crate) async fn execute(task: &UserTask) -> Result<TaskResult, Error> {
-    if user_exists(&task.name).await? {
+    if user_exists(&task.username).await? {
         return Ok(TaskResult {
             status: TaskStatus::Ok,
-            message: Some(format!("user {} already exists", task.name)),
+            message: Some(format!("user {} already exists", task.username)),
             details: Some(TaskDetails::User(UserDetails {
-                name: task.name.clone(),
+                name: task.username.clone(),
                 exists: true,
                 created: false,
             })),
@@ -28,7 +28,7 @@ pub(crate) async fn execute(task: &UserTask) -> Result<TaskResult, Error> {
     if let Some(home) = &task.home {
         command.arg("--home-dir").arg(home);
     }
-    command.arg(&task.name);
+    command.arg(&task.username);
 
     let output = command.output().await?;
     if !output.status.success() {
@@ -41,9 +41,9 @@ pub(crate) async fn execute(task: &UserTask) -> Result<TaskResult, Error> {
 
     Ok(TaskResult {
         status: TaskStatus::Changed,
-        message: Some(format!("created user {}", task.name)),
+        message: Some(format!("created user {}", task.username)),
         details: Some(TaskDetails::User(UserDetails {
-            name: task.name.clone(),
+            name: task.username.clone(),
             exists: true,
             created: true,
         })),

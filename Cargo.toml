@@ -27,4 +27,9 @@ thiserror = "2.0.12"
 tokio = "1.45.1"
 toml = "0.8.23"
 tracing = { version = "0.1.41", features = ["log"] }
+tracing-forest = { version = "0.3.1", features = ["ansi", "chrono", "env-filter"] }
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt"] }
+
+[profile.dev]
+opt-level = 1
+strip = "debuginfo"

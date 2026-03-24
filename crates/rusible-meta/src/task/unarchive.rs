@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UnarchiveTask {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub src: PathBuf,
     pub dest: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]

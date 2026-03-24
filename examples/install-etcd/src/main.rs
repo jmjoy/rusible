@@ -1,5 +1,6 @@
 use anyhow::bail;
 use rusible::{
+    init_forest_logging,
     inventory::{Host, Inventory},
     meta::{
         CommandTask, CopyTask, DownloadTask, FileState, FileTask, ShellTask, StatTask,
@@ -17,7 +18,6 @@ use std::{
     path::{Path, PathBuf},
 };
 use tracing::info;
-use tracing_subscriber::EnvFilter;
 
 const RUSIBLE_EXEC_BYTES: &[u8] = include_bytes!(env!("CARGO_BIN_FILE_RUSIBLE_EXEC"));
 
@@ -31,12 +31,7 @@ struct EtcdHostSpec {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info,rusible=debug")),
-        )
-        .init();
+    init_forest_logging("info,rusible=debug");
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let inventory_path = manifest_dir.join("inventory.toml");
@@ -104,6 +99,7 @@ async fn main() -> anyhow::Result<()> {
 
     inventory
         .run(TemplateTask {
+            name: Some("Render etcd systemd unit".to_string()),
             dest: PathBuf::from(&remote_service_path),
             content: include_str!("etcd.service.j2").to_string(),
             owner: None,
@@ -114,6 +110,7 @@ async fn main() -> anyhow::Result<()> {
 
     inventory
         .run(SystemdTask {
+            name: Some("Restart etcd service".to_string()),
             unit: "etcd.service".to_string(),
             daemon_reload: true,
             enabled: Some(true),
@@ -123,6 +120,7 @@ async fn main() -> anyhow::Result<()> {
 
     inventory
         .run(WaitForTask {
+            name: Some("Wait for etcd client port".to_string()),
             host: Some("127.0.0.1".to_string()),
             port: 2379,
             delay_secs: 5,
@@ -131,8 +129,9 @@ async fn main() -> anyhow::Result<()> {
         })
         .await?;
 
-    let health_report = inventory
+    inventory
         .run(CommandTask {
+            name: Some("Check etcd endpoint health".to_string()),
             cmd: None,
             argv: Some(vec![
                 "/usr/bin/env".to_string(),
@@ -152,30 +151,6 @@ async fn main() -> anyhow::Result<()> {
         })
         .await?;
 
-    for result in health_report.0 {
-        let stdout = result
-            .result
-            .details
-            .as_ref()
-            .map(|details| details.stdout.trim())
-            .unwrap_or("");
-        let stderr = result
-            .result
-            .details
-            .as_ref()
-            .map(|details| details.stderr.trim())
-            .unwrap_or("");
-
-        info!(
-            host = %result.host,
-            exec_path = %result.exec_path,
-            status = ?result.result.status,
-            stdout,
-            stderr,
-            "etcd endpoint health completed"
-        );
-    }
-
     info!(cluster_state = %cluster_state, cluster_token = %cluster_token, "install-etcd example finished");
 
     Ok(())
@@ -188,6 +163,7 @@ async fn prepare_local_certificates(
 ) -> anyhow::Result<()> {
     local
         .run(FileTask {
+            name: Some("Ensure local certificate directory".to_string()),
             path: local_cert_dir.to_path_buf(),
             state: FileState::Directory,
             owner: None,
@@ -201,6 +177,7 @@ async fn prepare_local_certificates(
     let ca_key_path = local_cert_dir.join("ca.key");
     let ca_stat = local
         .run(StatTask {
+            name: Some("Inspect local CA certificate".to_string()),
             path: ca_cert_path.clone(),
         })
         .await?;
@@ -208,6 +185,7 @@ async fn prepare_local_certificates(
     if !ca_stat.result.details.as_ref().is_some_and(|details| details.exists) {
         local
             .run(ShellTask {
+                name: Some("Generate local CA certificate".to_string()),
                 cmd: format!(
                     "set -eu; \
                      openssl genrsa -out {quoted_ca_key_path} 2048; \
@@ -233,6 +211,7 @@ async fn prepare_local_certificates(
 
         local
             .run(FileTask {
+                name: Some(format!("Render CSR config for {}", host.inventory_name)),
                 path: csr_config_path.clone(),
                 state: FileState::File,
                 owner: None,
@@ -244,6 +223,7 @@ async fn prepare_local_certificates(
 
         local
             .run(FileTask {
+                name: Some(format!("Render SAN extension for {}", host.inventory_name)),
                 path: san_ext_path.clone(),
                 state: FileState::File,
                 owner: None,
@@ -255,6 +235,7 @@ async fn prepare_local_certificates(
 
         local
             .run(ShellTask {
+                name: Some(format!("Generate certificate for {}", host.inventory_name)),
                 cmd: format!(
                     concat!(
                         "set -eu; ",
@@ -301,6 +282,7 @@ async fn install_etcd_runtime(
 
     local
         .run(FileTask {
+            name: Some("Ensure local etcd download directory".to_string()),
             path: local_download_dir.to_path_buf(),
             state: FileState::Directory,
             owner: None,
@@ -312,7 +294,8 @@ async fn install_etcd_runtime(
 
     inventory
         .run(UserTask {
-            name: "etcd".to_string(),
+            name: Some("Ensure etcd service user".to_string()),
+            username: "etcd".to_string(),
             system: true,
             create_home: false,
             shell: Some(PathBuf::from("/usr/sbin/nologin")),
@@ -323,6 +306,7 @@ async fn install_etcd_runtime(
     for path in [remote_ssl_dir, remote_data_dir] {
         inventory
             .run(FileTask {
+                name: Some(format!("Ensure remote directory {path}")),
                 path: PathBuf::from(path),
                 state: FileState::Directory,
                 owner: Some("etcd".to_string()),
@@ -335,6 +319,7 @@ async fn install_etcd_runtime(
 
     local
         .run(DownloadTask {
+            name: Some("Download etcd release archive".to_string()),
             url: format!(
                 "https://github.com/etcd-io/etcd/releases/download/{version}/etcd-{version}-linux-amd64.tar.gz"
             ),
@@ -346,21 +331,13 @@ async fn install_etcd_runtime(
         })
         .await?;
 
-    for upload in inventory
+    inventory
         .upload_file(&local_archive_path, &archive_path, UploadOptions::default())
-        .await?
-    {
-        info!(
-            host = %upload.host,
-            local_path = %upload.local_path.display(),
-            remote_path = %upload.remote_path,
-            bytes = upload.bytes_written,
-            "uploaded etcd archive to remote host"
-        );
-    }
+        .await?;
 
     inventory
         .run(UnarchiveTask {
+            name: Some("Extract etcd release archive".to_string()),
             src: archive_path,
             dest: PathBuf::from("/tmp"),
             creates: Some(extract_dir.join("etcd")),
@@ -370,6 +347,7 @@ async fn install_etcd_runtime(
     for binary in ["etcd", "etcdctl"] {
         inventory
             .run(CopyTask {
+                name: Some(format!("Install {binary} binary")),
                 src: extract_dir.join(binary).into(),
                 dest: PathBuf::from(format!("/usr/local/bin/{binary}")).into(),
                 owner: None,
@@ -381,6 +359,7 @@ async fn install_etcd_runtime(
 
     inventory
         .run(FileTask {
+            name: Some("Ensure etcd service file exists".to_string()),
             path: PathBuf::from(remote_service_path),
             state: FileState::Touch,
             owner: None,
@@ -394,7 +373,7 @@ async fn install_etcd_runtime(
 }
 
 async fn distribute_certificates(inventory: &Inventory) -> anyhow::Result<()> {
-    for upload in inventory
+    inventory
         .upload_file(
             TemplatedPath::new("{{ etcd.local_cert_dir }}/ca.crt"),
             TemplatedPath::new("{{ etcd.remote_ssl_dir }}/ca.crt"),
@@ -404,18 +383,9 @@ async fn distribute_certificates(inventory: &Inventory) -> anyhow::Result<()> {
                 mode: Some("0600".to_string()),
             },
         )
-        .await?
-    {
-        info!(
-            host = %upload.host,
-            local_path = %upload.local_path.display(),
-            remote_path = %upload.remote_path,
-            bytes = upload.bytes_written,
-            "uploaded file to remote host"
-        );
-    }
+        .await?;
 
-    for upload in inventory
+    inventory
         .upload_file(
             TemplatedPath::new("{{ etcd.local_cert_dir }}/{{ rusible.host.name }}.crt"),
             TemplatedPath::new("{{ etcd.remote_ssl_dir }}/server.crt"),
@@ -425,18 +395,9 @@ async fn distribute_certificates(inventory: &Inventory) -> anyhow::Result<()> {
                 mode: Some("0600".to_string()),
             },
         )
-        .await?
-    {
-        info!(
-            host = %upload.host,
-            local_path = %upload.local_path.display(),
-            remote_path = %upload.remote_path,
-            bytes = upload.bytes_written,
-            "uploaded file to remote host"
-        );
-    }
+        .await?;
 
-    for upload in inventory
+    inventory
         .upload_file(
             TemplatedPath::new("{{ etcd.local_cert_dir }}/{{ rusible.host.name }}.key"),
             TemplatedPath::new("{{ etcd.remote_ssl_dir }}/server.key"),
@@ -446,16 +407,7 @@ async fn distribute_certificates(inventory: &Inventory) -> anyhow::Result<()> {
                 mode: Some("0600".to_string()),
             },
         )
-        .await?
-    {
-        info!(
-            host = %upload.host,
-            local_path = %upload.local_path.display(),
-            remote_path = %upload.remote_path,
-            bytes = upload.bytes_written,
-            "uploaded file to remote host"
-        );
-    }
+        .await?;
 
     Ok(())
 }

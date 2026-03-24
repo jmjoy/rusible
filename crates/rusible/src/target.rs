@@ -7,7 +7,7 @@ use crate::{
         validate_remote_exec,
     },
     inventory::Inventory,
-    meta::{Task, TaskRequest, TaskResult, TaskSpec},
+    meta::{Task, TaskDetails, TaskRequest, TaskResult, TaskSpec, TaskStatus},
     report::{
         BatchRunError, BatchRunReport, LocalRunError, LocalRunReport, RemoteRunError,
         RemoteRunReport, RuntimeError, classify_report,
@@ -25,7 +25,7 @@ use std::{
 };
 use tokio::task::JoinSet;
 use toml::{Table, Value};
-use tracing::{debug, info, warn};
+use tracing::{Instrument, debug, info, info_span, warn};
 
 /// Represents the local controller node.
 #[derive(Debug, Default)]
@@ -187,6 +187,14 @@ impl Remote {
         let context = self.build_context(None, None);
         let local_path = local_path.into().resolve(&context).map_err(RuntimeError::from)?;
         let remote_path = remote_path.into().resolve(&context).map_err(RuntimeError::from)?;
+        let upload_span = info_span!(
+            "UPLOAD",
+            host = %self.host,
+            port = self.port,
+            local_path = %local_path.display(),
+            remote_path = %remote_path.display()
+        );
+        let _upload_guard = upload_span.enter();
         let bytes = tokio::fs::read(&local_path).await?;
         self.upload_bytes(remote_path, &bytes, options).await
     }
@@ -197,7 +205,17 @@ impl Remote {
     ) -> Result<UploadReport, RuntimeError> {
         let context = self.build_context(None, None);
         let remote_path = remote_path.into().resolve(&context).map_err(RuntimeError::from)?;
+        let upload_span = info_span!(
+            "UPLOAD",
+            host = %self.host,
+            port = self.port,
+            remote_path = %remote_path.display(),
+            bytes = bytes.len()
+        );
+        let _upload_guard = upload_span.enter();
         let remote_path = upload_remote_bytes(self, &remote_path, bytes, &options).await?;
+
+        info!(bytes_written = bytes.len(), "uploaded file");
 
         Ok(UploadReport {
             remote_path,
@@ -212,6 +230,8 @@ impl Runnable for Local {
     type RunError<D> = LocalRunError<D>;
 
     async fn init(&mut self, exec_bytes: &[u8]) -> Result<(), Self::InitError> {
+        let init_span = info_span!("INIT", host = "localhost");
+        let _init_guard = init_span.enter();
         let exec_path = ensure_local_exec(exec_bytes).await?;
         validate_local_exec(&exec_path).await?;
         info!(exec_path = %exec_path.display(), "initialized local rusible-exec");
@@ -226,6 +246,12 @@ impl Runnable for Local {
         T: TaskSpec + Send,
     {
         let task = task.into();
+        let task_name = task.display_name().to_string();
+        let task_kind = task.kind();
+        let task_span = info_span!("TASK", name = %task_name, kind = task_kind, target = "localhost");
+        let _task_guard = task_span.enter();
+        let host_span = info_span!(parent: &task_span, "HOST", host = "localhost");
+        let _host_guard = host_span.enter();
         let request = prepare_local_request(self, task.clone());
         let exec_path = self
             .exec_path
@@ -233,9 +259,9 @@ impl Runnable for Local {
             .ok_or_else(|| RuntimeError::NotInitialized {
                 backtrace: Backtrace::capture(),
             })?;
-        debug!(exec_path = %exec_path.display(), task = ?task, "running task locally");
+        debug!(task = ?task, "running task locally");
         let result = run_exec_process(&exec_path, &request).await?;
-        info!(exec_path = %exec_path.display(), status = ?result.status, "local task finished");
+        emit_task_result_events(&result);
 
         let report = LocalRunReport { exec_path, result }.try_into_typed::<T>()?;
         classify_report(report)
@@ -248,6 +274,8 @@ impl Runnable for Remote {
     type RunError<D> = RemoteRunError<D>;
 
     async fn init(&mut self, exec_bytes: &[u8]) -> Result<(), Self::InitError> {
+        let init_span = info_span!("INIT", host = %self.host, port = self.port);
+        let _init_guard = init_span.enter();
         let remote_exec_path = initialize_remote_exec(self, exec_bytes).await?;
         validate_remote_exec(self, &remote_exec_path).await?;
         info!(host = %self.host, port = self.port, exec_path = %remote_exec_path, "initialized remote rusible-exec");
@@ -262,6 +290,10 @@ impl Runnable for Remote {
         T: TaskSpec + Send,
     {
         let task = task.into();
+        let task_name = task.display_name().to_string();
+        let task_kind = task.kind();
+        let task_span = info_span!("TASK", name = %task_name, kind = task_kind, target = %self.host);
+        let _task_guard = task_span.enter();
         let request = prepare_remote_request(task.clone(), self, None, None);
         let exec_path =
             self.remote_exec_path
@@ -269,16 +301,18 @@ impl Runnable for Remote {
                 .ok_or_else(|| RuntimeError::NotInitialized {
                     backtrace: Backtrace::capture(),
                 })?;
-        debug!(host = %self.host, port = self.port, exec_path = %exec_path, task = ?task, "running task on remote host");
+        let host_span = info_span!(parent: &task_span, "HOST", host = %self.host, port = self.port);
+        let _host_guard = host_span.enter();
+        debug!(host = %self.host, port = self.port, task = ?task, "running task on remote host");
         let task_json = serde_json::to_string(&request).map_err(RuntimeError::from)?;
         let result = match execute_remote_task(self, &exec_path, &task_json).await {
             Ok(result) => result,
             Err(error) => {
-                warn!(host = %self.host, port = self.port, exec_path = %exec_path, error = %error, "remote task became unreachable");
+                warn!(host = %self.host, port = self.port, error = %error, "remote task became unreachable");
                 TaskResult::unreachable(error.to_string())
             }
         };
-        info!(host = %self.host, port = self.port, exec_path = %exec_path, status = ?result.status, "remote task finished");
+        emit_task_result_events(&result);
 
         let report = RemoteRunReport {
             host: self.host.clone(),
@@ -301,10 +335,8 @@ where
 
     async fn init(&mut self, exec_bytes: &[u8]) -> Result<(), Self::InitError> {
         let remotes = self.clone().into_iter().collect::<Vec<_>>();
-        info!(
-            remote_count = remotes.len(),
-            "initializing remote executables for batch"
-        );
+        let init_span = info_span!("INIT", scope = "batch", remote_count = remotes.len());
+        let _init_guard = init_span.enter();
 
         let mut initialized_remotes = Vec::new();
 
@@ -324,14 +356,38 @@ where
         T: TaskSpec + Send,
     {
         let task = task.into();
+        let task_name = task.display_name().to_string();
+        let task_kind = task.kind();
         let remotes = self.clone().into_iter().collect::<Vec<_>>();
-        info!(remote_count = remotes.len(), task = ?task, "running batch task");
+        let task_span = info_span!(
+            "TASK",
+            name = %task_name,
+            kind = task_kind,
+            remote_count = remotes.len()
+        );
+        let _task_guard = task_span.enter();
+        debug!(remote_count = remotes.len(), task = ?task, "running batch task");
         let mut tasks = JoinSet::new();
 
         for (index, remote) in remotes.iter().cloned().enumerate() {
             let request = prepare_remote_request(task.clone(), &remote, None, None);
             let task_json = serde_json::to_string(&request).map_err(RuntimeError::from)?;
-            tasks.spawn(async move { (index, run_remote_with_json(remote, task_json).await) });
+            let host_name = remote.host.clone();
+            let host_port = remote.port;
+            let host_span = info_span!(parent: &task_span, "HOST", host = %host_name, port = host_port);
+            tasks.spawn(
+                async move {
+                    let report = run_remote_with_json(remote, task_json).await;
+
+                    match &report {
+                        Ok(report) => emit_task_result_events(&report.result),
+                        Err(error) => warn!(error = %error, "host task failed before report classification"),
+                    }
+
+                    (index, report)
+                }
+                .instrument(host_span),
+            );
         }
 
         let mut results = vec![None; remotes.len()];
@@ -345,8 +401,6 @@ where
             .collect::<Option<Vec<_>>>()
             .expect("all spawned remote runs should produce a result");
 
-        info!(remote_count = results.len(), "batch task finished");
-
         let report = BatchRunReport(results).try_into_typed::<T>()?;
         classify_report(report)
     }
@@ -359,7 +413,8 @@ impl Runnable for Inventory {
 
     async fn init(&mut self, exec_bytes: &[u8]) -> Result<(), Self::InitError> {
         let host_count = self.len();
-        info!(host_count, "initializing remote executables for inventory");
+        let init_span = info_span!("INIT", scope = "inventory", host_count);
+        let _init_guard = init_span.enter();
 
         for host in &mut self.hosts {
             host.remote.init(exec_bytes).await?;
@@ -375,8 +430,17 @@ impl Runnable for Inventory {
         T: TaskSpec + Send,
     {
         let task = task.into();
+        let task_name = task.display_name().to_string();
+        let task_kind = task.kind();
         let hosts = self.hosts().to_vec();
-        info!(host_count = hosts.len(), task = ?task, "running inventory task");
+        let task_span = info_span!(
+            "TASK",
+            name = %task_name,
+            kind = task_kind,
+            host_count = hosts.len()
+        );
+        let _task_guard = task_span.enter();
+        debug!(host_count = hosts.len(), task = ?task, "running inventory task");
 
         let mut join_set = JoinSet::new();
         for (index, host) in hosts.iter().cloned().enumerate() {
@@ -389,12 +453,21 @@ impl Runnable for Inventory {
             let task_json = serde_json::to_string(&request).map_err(RuntimeError::from)?;
             let name = host.name().to_string();
             let remote = host.remote().clone();
-            join_set.spawn(async move {
-                (
-                    index,
-                    run_named_remote_with_json(name, remote, task_json).await,
-                )
-            });
+            let host_port = remote.port;
+            let host_span = info_span!(parent: &task_span, "HOST", host = %name, port = host_port);
+            join_set.spawn(
+                async move {
+                    let report = run_named_remote_with_json(name, remote, task_json).await;
+
+                    match &report {
+                        Ok(report) => emit_task_result_events(&report.result),
+                        Err(error) => warn!(error = %error, "host task failed before report classification"),
+                    }
+
+                    (index, report)
+                }
+                .instrument(host_span),
+            );
         }
 
         let mut results = vec![None; hosts.len()];
@@ -408,10 +481,50 @@ impl Runnable for Inventory {
             .collect::<Option<Vec<_>>>()
             .expect("all spawned host runs should produce a result");
 
-        info!(host_count = results.len(), "inventory task finished");
-
         let report = BatchRunReport(results).try_into_typed::<T>()?;
         classify_report(report)
+    }
+}
+
+fn emit_task_result_events(result: &TaskResult) {
+    let message = result
+        .message
+        .as_deref()
+        .filter(|message| !message.is_empty())
+        .unwrap_or_else(|| result.status.as_str());
+
+    match result.status {
+        TaskStatus::Failed | TaskStatus::Unreachable => {
+            warn!(status = %result.status, "{message}");
+            emit_failure_detail_events(result.details.as_ref());
+        }
+        _ => info!(status = %result.status, "{message}"),
+    }
+}
+
+fn emit_failure_detail_events(details: Option<&TaskDetails>) {
+    let Some(details) = details else {
+        return;
+    };
+
+    match details {
+        TaskDetails::Command(details) => emit_command_output_events(details.rc, &details.stdout, &details.stderr),
+        TaskDetails::Shell(details) => emit_command_output_events(details.rc, &details.stdout, &details.stderr),
+        _ => {}
+    }
+}
+
+fn emit_command_output_events(rc: Option<i32>, stdout: &str, stderr: &str) {
+    if let Some(rc) = rc {
+        warn!(rc, "command exited with non-zero status");
+    }
+
+    if !stdout.trim().is_empty() {
+        warn!(stream = "stdout", "{}", stdout.trim());
+    }
+
+    if !stderr.trim().is_empty() {
+        warn!(stream = "stderr", "{}", stderr.trim());
     }
 }
 
