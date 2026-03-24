@@ -12,7 +12,7 @@ ExecStart=/usr/local/bin/etcd \
   --name {{ etcd.name }} \
   --data-dir {{ etcd.remote_data_dir }} \
   --listen-peer-urls https://0.0.0.0:2380 \
-  --listen-client-urls https://0.0.0.0:2379,https://127.0.0.1:2379 \
+  --listen-client-urls https://0.0.0.0:2379 \
   --initial-advertise-peer-urls https://{{ etcd.peer_host }}:2380 \
   --advertise-client-urls https://{{ etcd.client_host }}:2379 \
   --initial-cluster {{ etcd.initial_cluster }} \
