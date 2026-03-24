@@ -31,7 +31,7 @@ struct EtcdHostSpec {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    init_forest_logging("info,rusible=debug");
+    init_forest_logging("info");
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let inventory_path = manifest_dir.join("inventory.toml");

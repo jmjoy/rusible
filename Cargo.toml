@@ -9,6 +9,7 @@ license = "MulanPSL-2.0"
 repository = "https://github.com/jmjoy/rusible"
 
 [workspace.dependencies]
+ansi_term = "0.12.1"
 anyhow = "1.0.102"
 clap = { version = "4.5.40", features = ["derive"] }
 minijinja = "2.12.0"
@@ -27,7 +28,7 @@ thiserror = "2.0.12"
 tokio = "1.45.1"
 toml = "0.8.23"
 tracing = { version = "0.1.41", features = ["log"] }
-tracing-forest = { version = "0.3.1", features = ["ansi", "chrono", "env-filter"] }
+tracing-forest = { version = "0.3.1", features = ["ansi", "chrono", "env-filter", "tokio"] }
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt"] }
 
 [profile.dev]

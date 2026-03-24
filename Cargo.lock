@@ -2298,6 +2298,7 @@ dependencies = [
 name = "rusible"
 version = "0.1.0"
 dependencies = [
+ "ansi_term",
  "rusible-meta",
  "rusible-template",
  "russh",
@@ -3146,6 +3147,7 @@ dependencies = [
  "chrono",
  "smallvec",
  "thiserror 2.0.12",
+ "tokio",
  "tracing",
  "tracing-subscriber",
 ]
