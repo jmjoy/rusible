@@ -6,11 +6,13 @@ mod exec;
 pub mod inventory;
 pub mod report;
 pub mod runtime;
+mod shell;
 pub mod target;
 mod vars;
 
 pub use rusible_meta as meta;
 pub use rusible_template::{ResolveTemplate, TemplatedPath, TemplatedString, TemplatedUrl};
+pub use shell::{QuoteError, shell_quote, shell_quote_path};
 pub use target::UploadOptions;
 /// Re-exported TOML table type for task variable maps.
 pub use toml::Table;

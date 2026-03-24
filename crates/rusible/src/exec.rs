@@ -189,8 +189,9 @@ pub(crate) async fn initialize_remote_exec(
     }
     sftp.close().await.map_err(sftp_error)?;
 
+    let quoted_exec_path = crate::shell_quote(&exec_path)?;
     session
-        .run_simple_command(&format!("chmod 700 {}", shell_quote(&exec_path)))
+        .run_simple_command(&format!("chmod 700 {quoted_exec_path}"))
         .await?;
     session.close().await?;
 
@@ -231,42 +232,36 @@ async fn apply_remote_upload_options(
     session: &mut RemoteSession, remote_path: &str, options: &UploadOptions,
 ) -> Result<(), RuntimeError> {
     if let Some(mode) = &options.mode {
+        let quoted_mode = crate::shell_quote(mode)?;
+        let quoted_remote_path = crate::shell_quote(remote_path)?;
         session
-            .run_simple_command(&format!(
-                "chmod {} {}",
-                shell_quote(mode),
-                shell_quote(remote_path)
-            ))
+            .run_simple_command(&format!("chmod {quoted_mode} {quoted_remote_path}"))
             .await?;
     }
 
     match (&options.owner, &options.group) {
         (Some(owner), Some(group)) => {
+            let quoted_owner = crate::shell_quote(owner)?;
+            let quoted_group = crate::shell_quote(group)?;
+            let quoted_remote_path = crate::shell_quote(remote_path)?;
             session
                 .run_simple_command(&format!(
-                    "chown {}:{} {}",
-                    shell_quote(owner),
-                    shell_quote(group),
-                    shell_quote(remote_path)
+                    "chown {quoted_owner}:{quoted_group} {quoted_remote_path}"
                 ))
                 .await?;
         }
         (Some(owner), None) => {
+            let quoted_owner = crate::shell_quote(owner)?;
+            let quoted_remote_path = crate::shell_quote(remote_path)?;
             session
-                .run_simple_command(&format!(
-                    "chown {} {}",
-                    shell_quote(owner),
-                    shell_quote(remote_path)
-                ))
+                .run_simple_command(&format!("chown {quoted_owner} {quoted_remote_path}"))
                 .await?;
         }
         (None, Some(group)) => {
+            let quoted_group = crate::shell_quote(group)?;
+            let quoted_remote_path = crate::shell_quote(remote_path)?;
             session
-                .run_simple_command(&format!(
-                    "chgrp {} {}",
-                    shell_quote(group),
-                    shell_quote(remote_path)
-                ))
+                .run_simple_command(&format!("chgrp {quoted_group} {quoted_remote_path}"))
                 .await?;
         }
         (None, None) => {}
@@ -279,7 +274,8 @@ pub(crate) async fn validate_remote_exec(
     remote: &Remote, exec_path: &str,
 ) -> Result<(), RuntimeError> {
     let mut session = RemoteSession::connect(remote).await?;
-    let command = format!("{} --version", shell_quote(exec_path));
+    let quoted_exec_path = crate::shell_quote(exec_path)?;
+    let command = format!("{quoted_exec_path} --version");
     debug!(host = %remote.host, port = remote.port, exec_path = %exec_path, "validating remote rusible-exec");
     let output = session.run_command(&command, None).await?;
     session.close().await?;
@@ -297,8 +293,9 @@ pub(crate) async fn execute_remote_task(
 ) -> Result<TaskResult, RuntimeError> {
     let mut session = RemoteSession::connect(remote).await?;
     debug!(host = %remote.host, port = remote.port, exec_path = %exec_path, payload_bytes = task_json.len(), "executing remote task");
+    let quoted_exec_path = crate::shell_quote(exec_path)?;
     let output = session
-        .run_command(&shell_quote(exec_path), Some(task_json.as_bytes()))
+        .run_command(&quoted_exec_path, Some(task_json.as_bytes()))
         .await?;
     session.close().await?;
 
@@ -364,15 +361,6 @@ pub(crate) fn embedded_exec_hash(exec_bytes: &[u8]) -> String {
         hash.push_str(&format!("{byte:02x}"));
     }
     hash
-}
-
-pub(crate) fn shell_quote(input: &str) -> String {
-    if input.is_empty() {
-        return "''".to_string();
-    }
-
-    let escaped = input.replace('\'', "'\"'\"'");
-    format!("'{escaped}'")
 }
 
 fn path_to_string(path: &Path) -> String {
@@ -573,11 +561,6 @@ mod tests {
     fn local_exec_path_uses_hash() {
         let hash = embedded_exec_hash(b"abc");
         assert_eq!(hash.len(), 64);
-    }
-
-    #[test]
-    fn shell_quote_escapes_single_quotes() {
-        assert_eq!(shell_quote("/tmp/it's ok"), "'/tmp/it'\"'\"'s ok'");
     }
 
     #[test]

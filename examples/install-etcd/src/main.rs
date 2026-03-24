@@ -6,8 +6,10 @@ use rusible::{
         SystemdState, SystemdTask, TemplateTask, UnarchiveTask, UserTask, WaitForTask,
     },
     runtime::Runnable as _,
+    shell_quote,
+    shell_quote_path,
     target::Local,
-    TemplatedPath, UploadOptions,
+    TemplatedPath, UploadOptions, VarLookupError,
 };
 use std::{
     env::temp_dir,
@@ -207,10 +209,12 @@ async fn prepare_local_certificates(
         local
             .run(ShellTask {
                 cmd: format!(
-                    "set -eu; openssl genrsa -out {} 2048; openssl req -x509 -new -nodes -key {} -subj '/CN=etcd-ca' -days 3650 -out {}",
-                    shell_quote_path(&ca_key_path),
-                    shell_quote_path(&ca_key_path),
-                    shell_quote_path(&ca_cert_path),
+                    "set -eu; \
+                     openssl genrsa -out {quoted_ca_key_path} 2048; \
+                     openssl req -x509 -new -nodes -key {quoted_ca_key_path} \
+                     -subj '/CN=etcd-ca' -days 3650 -out {quoted_ca_cert_path}",
+                    quoted_ca_key_path = shell_quote_path(&ca_key_path)?,
+                    quoted_ca_cert_path = shell_quote_path(&ca_cert_path)?,
                 ),
                 chdir: None,
                 creates: Some(ca_cert_path.clone()),
@@ -254,20 +258,22 @@ async fn prepare_local_certificates(
                 cmd: format!(
                     concat!(
                         "set -eu; ",
-                        "openssl genrsa -out {} 2048; ",
-                        "openssl req -new -key {} -subj {} -config {} -extensions v3_req -out {}; ",
-                        "openssl x509 -req -in {} -CA {} -CAkey {} -CAcreateserial -days 365 -out {} -extfile {}"
+                        "openssl genrsa -out {quoted_key_path} 2048; ",
+                        "openssl req -new -key {quoted_key_path} -subj {quoted_subject} ",
+                        "-config {quoted_csr_config_path} -extensions v3_req ",
+                        "-out {quoted_csr_path}; ",
+                        "openssl x509 -req -in {quoted_csr_path} -CA {quoted_ca_cert_path} ",
+                        "-CAkey {quoted_ca_key_path} -CAcreateserial -days 365 ",
+                        "-out {quoted_crt_path} -extfile {quoted_san_ext_path}"
                     ),
-                    shell_quote_path(&key_path),
-                    shell_quote_path(&key_path),
-                    shell_quote(&format!("/CN={}", host.member_name)),
-                    shell_quote_path(&csr_config_path),
-                    shell_quote_path(&csr_path),
-                    shell_quote_path(&csr_path),
-                    shell_quote_path(&ca_cert_path),
-                    shell_quote_path(&ca_key_path),
-                    shell_quote_path(&crt_path),
-                    shell_quote_path(&san_ext_path),
+                    quoted_key_path = shell_quote_path(&key_path)?,
+                    quoted_subject = shell_quote(format!("/CN={}", host.member_name))?,
+                    quoted_csr_config_path = shell_quote_path(&csr_config_path)?,
+                    quoted_csr_path = shell_quote_path(&csr_path)?,
+                    quoted_ca_cert_path = shell_quote_path(&ca_cert_path)?,
+                    quoted_ca_key_path = shell_quote_path(&ca_key_path)?,
+                    quoted_crt_path = shell_quote_path(&crt_path)?,
+                    quoted_san_ext_path = shell_quote_path(&san_ext_path)?,
                 ),
                 chdir: None,
                 creates: Some(crt_path),
@@ -456,10 +462,16 @@ async fn distribute_certificates(inventory: &Inventory) -> anyhow::Result<()> {
 
 fn host_spec_from_inventory_host(host: &Host) -> anyhow::Result<EtcdHostSpec> {
     let member_name = host.remote().get_var("etcd.name")?;
-    let peer_host = optional_string(host.remote().vars(), "etcd.peer_host")
-        .unwrap_or_else(|| host.remote().host.clone());
-    let client_host = optional_string(host.remote().vars(), "etcd.client_host")
-        .unwrap_or_else(|| peer_host.clone());
+    let peer_host = match host.remote().get_var("etcd.peer_host") {
+        Ok(value) => value,
+        Err(VarLookupError::Missing { .. }) => host.remote().host.clone(),
+        Err(error) => return Err(error.into()),
+    };
+    let client_host = match host.remote().get_var("etcd.client_host") {
+        Ok(value) => value,
+        Err(VarLookupError::Missing { .. }) => peer_host.clone(),
+        Err(error) => return Err(error.into()),
+    };
 
     Ok(EtcdHostSpec {
         inventory_name: host.name().to_string(),
@@ -509,28 +521,4 @@ fn resolve_local_path(base_dir: &Path, configured: &str) -> PathBuf {
     } else {
         base_dir.join(path)
     }
-}
-
-fn optional_string(vars: &rusible::Table, path: &str) -> Option<String> {
-    lookup_value(vars, path).and_then(|value| value.as_str().map(ToOwned::to_owned))
-}
-
-fn lookup_value<'a>(vars: &'a rusible::Table, path: &str) -> Option<&'a rusible::Value> {
-    let mut parts = path.split('.');
-    let first = parts.next()?;
-    let mut value = vars.get(first)?;
-
-    for part in parts {
-        value = value.as_table()?.get(part)?;
-    }
-
-    Some(value)
-}
-
-fn shell_quote_path(path: &Path) -> String {
-    shell_quote(&path.display().to_string())
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }

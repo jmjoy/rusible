@@ -105,6 +105,13 @@ pub enum RuntimeError {
         backtrace: Backtrace,
     },
 
+    #[error("{source}")]
+    ShellQuote {
+        #[from]
+        source: shlex::QuoteError,
+        backtrace: Backtrace,
+    },
+
     #[error("tokio task join failed: {source}")]
     TaskJoin {
         #[from]
