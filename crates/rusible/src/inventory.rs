@@ -8,6 +8,7 @@ use rusible_template::{ResolveTemplate, TemplatedPath};
 use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
+    io,
     path::{Path, PathBuf},
 };
 use tokio::fs;
@@ -213,24 +214,18 @@ impl Inventory {
 
     /// Parses an inventory from TOML text.
     pub fn from_toml_str(input: &str) -> Result<Self, InventoryLoadError> {
-        let parsed: InventoryToml = toml::from_str(input)?;
+        let parsed = parse_inventory_toml(input, None)?;
         parsed.try_into_inventory()
     }
 
-    /// Parses an inventory from a TOML file on disk.
+    /// Parses an inventory from a TOML file or a directory of TOML files.
     pub async fn from_toml_path<P>(path: P) -> Result<Self, InventoryLoadError>
     where
         P: AsRef<Path>,
     {
         let path = path.as_ref();
-        let input = fs::read_to_string(path)
-            .await
-            .map_err(|source| InventoryLoadError::Io {
-                path: path.to_path_buf(),
-                source,
-            })?;
-
-        Self::from_toml_str(&input)
+        let parsed = load_inventory_toml(path).await?;
+        parsed.try_into_inventory()
     }
 
     /// Returns a new `Inventory` containing only hosts reachable through the
@@ -364,7 +359,7 @@ impl Inventory {
 /// Error returned while loading an [`Inventory`] from TOML.
 #[derive(Debug, thiserror::Error)]
 pub enum InventoryLoadError {
-    #[error("failed to read inventory file {path}: {source}")]
+    #[error("failed to access inventory path {path}: {source}")]
     Io {
         path: PathBuf,
         #[source]
@@ -373,9 +368,23 @@ pub enum InventoryLoadError {
 
     #[error("invalid inventory TOML: {source}")]
     Toml {
-        #[from]
         source: toml::de::Error,
     },
+
+    #[error("invalid inventory TOML in {path}: {source}")]
+    TomlFile {
+        path: PathBuf,
+        #[source]
+        source: toml::de::Error,
+    },
+
+    #[error("unknown top-level inventory key `{key}`; expected only `vars`, `groups`, or `hosts`")]
+    UnknownTopLevelKey { key: String },
+
+    #[error(
+        "unknown top-level inventory key `{key}` in {path}; expected only `vars`, `groups`, or `hosts`"
+    )]
+    UnknownTopLevelKeyFile { path: PathBuf, key: String },
 
     #[error("duplicate host name `{name}` in inventory")]
     DuplicateHostName { name: String },
@@ -509,6 +518,174 @@ impl InventoryToml {
     }
 }
 
+fn parse_inventory_toml(
+    input: &str, path: Option<&Path>,
+) -> Result<InventoryToml, InventoryLoadError> {
+    let table = toml::from_str::<Table>(input).map_err(|source| match path {
+        Some(path) => InventoryLoadError::TomlFile {
+            path: path.to_path_buf(),
+            source,
+        },
+        None => InventoryLoadError::Toml { source },
+    })?;
+
+    validate_inventory_table(&table, path)?;
+    inventory_toml_from_table(table, path)
+}
+
+fn inventory_toml_from_table(
+    table: Table, path: Option<&Path>,
+) -> Result<InventoryToml, InventoryLoadError> {
+    validate_inventory_table(&table, path)?;
+    Value::Table(table).try_into().map_err(|source| match path {
+        Some(path) => InventoryLoadError::TomlFile {
+            path: path.to_path_buf(),
+            source,
+        },
+        None => InventoryLoadError::Toml { source },
+    })
+}
+
+async fn load_inventory_toml(path: &Path) -> Result<InventoryToml, InventoryLoadError> {
+    let metadata = fs::metadata(path)
+        .await
+        .map_err(|source| InventoryLoadError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
+
+    if metadata.is_file() {
+        let input = fs::read_to_string(path)
+            .await
+            .map_err(|source| InventoryLoadError::Io {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        return parse_inventory_toml(&input, Some(path));
+    }
+
+    if !metadata.is_dir() {
+        return Err(InventoryLoadError::Io {
+            path: path.to_path_buf(),
+            source: io::Error::other("inventory path must be a file or directory"),
+        });
+    }
+
+    let mut merged = Table::new();
+    let files = collect_inventory_toml_files(path).await?;
+    for file in files {
+        let input = fs::read_to_string(&file)
+            .await
+            .map_err(|source| InventoryLoadError::Io {
+                path: file.clone(),
+                source,
+            })?;
+        let table = toml::from_str::<Table>(&input).map_err(|source| InventoryLoadError::TomlFile {
+            path: file.clone(),
+            source,
+        })?;
+        validate_inventory_table(&table, Some(&file))?;
+        merge_inventory_tables(&mut merged, table);
+    }
+
+    inventory_toml_from_table(merged, None)
+}
+
+async fn collect_inventory_toml_files(root: &Path) -> Result<Vec<PathBuf>, InventoryLoadError> {
+    let mut files = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+
+    while let Some(dir) = pending.pop() {
+        let mut entries = fs::read_dir(&dir)
+            .await
+            .map_err(|source| InventoryLoadError::Io {
+                path: dir.clone(),
+                source,
+            })?;
+
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|source| InventoryLoadError::Io {
+                path: dir.clone(),
+                source,
+            })?
+        {
+            let path = entry.path();
+            let file_type = entry
+                .file_type()
+                .await
+                .map_err(|source| InventoryLoadError::Io {
+                    path: path.clone(),
+                    source,
+                })?;
+
+            if file_type.is_dir() {
+                pending.push(path);
+                continue;
+            }
+
+            if file_type.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
+                files.push(path);
+            }
+        }
+    }
+
+    files.sort_by(|left, right| inventory_sort_key(root, left).cmp(&inventory_sort_key(root, right)));
+    Ok(files)
+}
+
+fn inventory_sort_key(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn merge_inventory_tables(base: &mut Table, overlay: Table) {
+    for (key, overlay_value) in overlay {
+        match key.as_str() {
+            "vars" => match (base.get_mut(&key), overlay_value) {
+                (Some(Value::Table(base_table)), Value::Table(overlay_table)) => {
+                    merge_tables(base_table, &overlay_table);
+                }
+                (_, value) => {
+                    base.insert(key, value);
+                }
+            },
+            "groups" | "hosts" => match (base.get_mut(&key), overlay_value) {
+                (Some(Value::Array(base_array)), Value::Array(mut overlay_array)) => {
+                    base_array.append(&mut overlay_array);
+                }
+                (_, value) => {
+                    base.insert(key, value);
+                }
+            },
+            _ => unreachable!("inventory top-level keys are validated before merge"),
+        }
+    }
+}
+
+fn validate_inventory_table(
+    table: &Table, path: Option<&Path>,
+) -> Result<(), InventoryLoadError> {
+    for key in table.keys() {
+        if matches!(key.as_str(), "vars" | "groups" | "hosts") {
+            continue;
+        }
+
+        return Err(match path {
+            Some(path) => InventoryLoadError::UnknownTopLevelKeyFile {
+                path: path.to_path_buf(),
+                key: key.clone(),
+            },
+            None => InventoryLoadError::UnknownTopLevelKey { key: key.clone() },
+        });
+    }
+
+    Ok(())
+}
+
 fn build_group_tree(
     name: &str, children_by_name: &HashMap<String, Vec<String>>,
     built_groups: &mut HashMap<String, Group>, active_stack: &mut HashSet<String>,
@@ -545,6 +722,11 @@ fn default_remote_port() -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        fs as stdfs,
+        future::Future,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     fn make_remote(host: &str) -> Remote {
         Remote::new(host, 22, "user", None, None)
@@ -566,6 +748,52 @@ mod tests {
             );
         inventory.set_var("region", "cn-north-1").unwrap();
         inventory
+    }
+
+    struct TestDir {
+        path: PathBuf,
+    }
+
+    impl TestDir {
+        fn new() -> Self {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "rusible-inventory-tests-{}-{}",
+                std::process::id(),
+                unique
+            ));
+            stdfs::create_dir_all(&path).unwrap();
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+
+        fn write(&self, relative: &str, content: &str) {
+            let path = self.path.join(relative);
+            if let Some(parent) = path.parent() {
+                stdfs::create_dir_all(parent).unwrap();
+            }
+            stdfs::write(path, content).unwrap();
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = stdfs::remove_dir_all(&self.path);
+        }
+    }
+
+    fn block_on<F: Future>(future: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(future)
     }
 
     const INVENTORY_TOML: &str = r#"
@@ -761,6 +989,178 @@ children = ["prod"]
         assert!(matches!(
             Inventory::from_toml_str(inventory_toml),
             Err(InventoryLoadError::GroupCycle { .. })
+        ));
+    }
+
+    #[test]
+    fn inventory_parse_rejects_unknown_top_level_key() {
+        let inventory_toml = r#"
+[vars]
+region = "cn-north-1"
+
+[extra]
+enabled = true
+"#;
+
+        assert!(matches!(
+            Inventory::from_toml_str(inventory_toml),
+            Err(InventoryLoadError::UnknownTopLevelKey { key }) if key == "extra"
+        ));
+    }
+
+    #[test]
+    fn inventory_loads_from_directory_tree() {
+        let dir = TestDir::new();
+        dir.write(
+            "00-vars.toml",
+            r#"
+[vars]
+region = "cn-north-1"
+
+[vars.app]
+name = "base"
+packages = ["curl"]
+"#,
+        );
+        dir.write(
+            "10-groups.toml",
+            r#"
+[[groups]]
+name = "web"
+"#,
+        );
+        dir.write(
+            "20-hosts.toml",
+            r#"
+[[hosts]]
+name = "web-1"
+host = "10.0.0.11"
+user = "root"
+groups = ["web"]
+"#,
+        );
+        dir.write(
+            "nested/30-overlay.toml",
+            r#"
+[vars.app]
+name = "overlay"
+packages = ["git"]
+env = "prod"
+
+[[hosts]]
+name = "web-2"
+host = "10.0.0.12"
+user = "root"
+groups = ["web"]
+"#,
+        );
+        dir.write("nested/notes.txt", "ignore me");
+
+        let inventory = block_on(Inventory::from_toml_path(dir.path())).unwrap();
+
+        assert_eq!(inventory.vars()["region"].as_str(), Some("cn-north-1"));
+        assert_eq!(inventory.vars()["app"]["name"].as_str(), Some("overlay"));
+        assert_eq!(inventory.vars()["app"]["env"].as_str(), Some("prod"));
+        assert_eq!(inventory.vars()["app"]["packages"][0].as_str(), Some("git"));
+        assert_eq!(inventory.groups().len(), 1);
+        assert_eq!(inventory.groups()[0].name(), "web");
+        assert_eq!(inventory.hosts().len(), 2);
+        assert_eq!(inventory.hosts()[0].name(), "web-1");
+        assert_eq!(inventory.hosts()[1].name(), "web-2");
+    }
+
+    #[test]
+    fn inventory_directory_merge_uses_lexicographic_file_order() {
+        let dir = TestDir::new();
+        dir.write(
+            "01-base.toml",
+            r#"
+[vars]
+region = "base"
+"#,
+        );
+        dir.write(
+            "02-override.toml",
+            r#"
+[vars]
+region = "override"
+"#,
+        );
+
+        let inventory = block_on(Inventory::from_toml_path(dir.path())).unwrap();
+        assert_eq!(inventory.vars()["region"].as_str(), Some("override"));
+    }
+
+    #[test]
+    fn inventory_directory_rejects_duplicate_hosts_across_files() {
+        let dir = TestDir::new();
+        dir.write(
+            "00-groups.toml",
+            r#"
+[[groups]]
+name = "web"
+"#,
+        );
+        dir.write(
+            "01-hosts.toml",
+            r#"
+[[hosts]]
+name = "web-1"
+host = "10.0.0.11"
+user = "root"
+groups = ["web"]
+"#,
+        );
+        dir.write(
+            "nested/02-hosts.toml",
+            r#"
+[[hosts]]
+name = "web-1"
+host = "10.0.0.12"
+user = "root"
+groups = ["web"]
+"#,
+        );
+
+        assert!(matches!(
+            block_on(Inventory::from_toml_path(dir.path())),
+            Err(InventoryLoadError::DuplicateHostName { .. })
+        ));
+    }
+
+    #[test]
+    fn inventory_directory_reports_invalid_toml_file_path() {
+        let dir = TestDir::new();
+        dir.write("00-invalid.toml", "[vars\nregion = \"broken\"");
+
+        assert!(matches!(
+            block_on(Inventory::from_toml_path(dir.path())),
+            Err(InventoryLoadError::TomlFile { path, .. }) if path == dir.path().join("00-invalid.toml")
+        ));
+    }
+
+    #[test]
+    fn inventory_directory_rejects_unknown_top_level_key() {
+        let dir = TestDir::new();
+        dir.write(
+            "00-vars.toml",
+            r#"
+[vars]
+region = "cn-north-1"
+"#,
+        );
+        dir.write(
+            "nested/10-extra.toml",
+            r#"
+[extra]
+enabled = true
+"#,
+        );
+
+        assert!(matches!(
+            block_on(Inventory::from_toml_path(dir.path())),
+            Err(InventoryLoadError::UnknownTopLevelKeyFile { path, key })
+                if path == dir.path().join("nested/10-extra.toml") && key == "extra"
         ));
     }
 }

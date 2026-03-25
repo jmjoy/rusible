@@ -1,12 +1,12 @@
 # hello-inventory
 
-`hello-inventory` demonstrates how to load an `inventory.toml` file into
-`rusible::inventory::Inventory`, select a host subset, and execute a simple
-template task.
+`hello-inventory` demonstrates how to load an inventory TOML file or a
+directory of inventory TOML files into `rusible::inventory::Inventory`, select
+a host subset, and execute a simple template task.
 
 ## What It Shows
 
-- loading `inventory.toml` with `inventory::Inventory::from_toml_path`
+- loading an inventory TOML file or directory with `inventory::Inventory::from_toml_path`
 - representing named hosts and nested groups in TOML
 - filtering selected hosts by group before execution
 - defining inventory-level default vars and per-host overrides in TOML
@@ -15,11 +15,18 @@ template task.
 
 ## Inventory Format
 
-The example inventory uses two top-level arrays:
+Inventory files accept exactly three top-level keys:
 
 - `[vars]`: default variables shared by all hosts in the inventory
 - `[[groups]]`: named group definitions with optional `children`
 - `[[hosts]]`: named hosts with SSH connection info, optional `vars`, and `groups`
+
+Rusible rejects any other top-level key so typos fail fast.
+
+When loading a directory, Rusible recursively reads every `.toml` file,
+sorts them by relative path, and merges them into one logical inventory.
+`[vars]` tables merge recursively, and `[[groups]]` and `[[hosts]]` append
+across files.
 
 ## License
 
