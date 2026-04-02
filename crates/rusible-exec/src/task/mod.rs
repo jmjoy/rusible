@@ -10,7 +10,7 @@ mod user;
 mod wait_for;
 
 use crate::Error;
-use rusible_meta::{TaskData, TaskRequest, TaskResult};
+use rusible_meta::task::{TaskData, TaskRequest, TaskResult};
 
 pub(crate) async fn execute(request: TaskRequest) -> Result<TaskResult, Error> {
     request.task.validate()?;

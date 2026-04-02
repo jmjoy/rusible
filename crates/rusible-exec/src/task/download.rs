@@ -1,6 +1,9 @@
 use super::file;
 use crate::Error;
-use rusible_meta::{DownloadDetails, DownloadTaskData, TaskDetails, TaskResult, TaskStatus};
+use rusible_meta::task::{
+    TaskDetails, TaskResult, TaskStatus,
+    download::{DownloadDetails, DownloadTaskData},
+};
 use tokio::fs;
 
 pub(crate) async fn execute(task: &DownloadTaskData) -> Result<TaskResult, Error> {
@@ -67,7 +70,10 @@ fn temporary_download_path(dest: &std::path::Path) -> std::path::PathBuf {
 #[cfg(test)]
 mod tests {
     use super::execute;
-    use rusible_meta::{DownloadDetails, DownloadTaskData, TaskDetails, TaskStatus};
+    use rusible_meta::task::{
+        TaskDetails, TaskStatus,
+        download::{DownloadDetails, DownloadTaskData},
+    };
     use std::{
         env, fs,
         io::{Read, Write},

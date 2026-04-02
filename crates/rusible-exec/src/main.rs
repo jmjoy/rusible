@@ -1,7 +1,7 @@
 mod task;
 
 use clap::Parser;
-use rusible_meta::{TaskRequest, TaskResult, TaskValidationError};
+use rusible_meta::task::{TaskRequest, TaskResult, TaskStatus, TaskValidationError};
 use std::{io, process::ExitCode};
 use tokio::io::AsyncReadExt;
 
@@ -57,12 +57,8 @@ fn main() -> ExitCode {
         Ok(result) => {
             print_result(&result);
             match result.status {
-                rusible_meta::TaskStatus::Ok
-                | rusible_meta::TaskStatus::Changed
-                | rusible_meta::TaskStatus::Skipped => ExitCode::SUCCESS,
-                rusible_meta::TaskStatus::Failed | rusible_meta::TaskStatus::Unreachable => {
-                    ExitCode::from(2)
-                }
+                TaskStatus::Ok | TaskStatus::Changed | TaskStatus::Skipped => ExitCode::SUCCESS,
+                TaskStatus::Failed | TaskStatus::Unreachable => ExitCode::from(2),
             }
         }
         Err(error) => {

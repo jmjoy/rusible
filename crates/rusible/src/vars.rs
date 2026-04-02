@@ -1,3 +1,5 @@
+//! Controller-side variable helpers and related error types.
+
 use toml::{Table, Value};
 
 /// Error returned when manipulating controller-side template variables.

@@ -1,6 +1,6 @@
 //! Controller-side runtime for executing Rusible tasks locally or over SSH.
 
-use crate::meta::TaskSpec;
+use crate::meta::task::TaskSpec;
 use std::{future::Future, path::PathBuf};
 use tokio::fs;
 

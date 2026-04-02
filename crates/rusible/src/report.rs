@@ -1,6 +1,6 @@
 use crate::meta::{
-    ResolveValueError, TaskDetails, TaskResult, TaskSpec, TaskStatus, TaskValidationError,
-    TemplateError,
+    field::{ResolveValueError, TemplateError},
+    task::{TaskDetails, TaskResult, TaskSpec, TaskStatus, TaskValidationError},
 };
 use std::{backtrace::Backtrace, path::PathBuf};
 

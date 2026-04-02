@@ -1,5 +1,8 @@
 use crate::Error;
-use rusible_meta::{ShellDetails, ShellTaskData, TaskDetails, TaskResult, TaskStatus};
+use rusible_meta::task::{
+    TaskDetails, TaskResult, TaskStatus,
+    shell::{ShellDetails, ShellTaskData},
+};
 use std::process::Stdio;
 use tokio::{fs, io::AsyncWriteExt, process::Command};
 

@@ -1,5 +1,8 @@
 use crate::Error;
-use rusible_meta::{StatDetails, StatTaskData, TaskDetails, TaskResult, TaskStatus};
+use rusible_meta::task::{
+    TaskDetails, TaskResult, TaskStatus,
+    stat::{StatDetails, StatTaskData},
+};
 use std::os::unix::fs::PermissionsExt;
 use tokio::fs;
 

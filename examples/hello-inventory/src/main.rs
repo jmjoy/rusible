@@ -1,7 +1,10 @@
 use rusible::{
-    Field, init_forest_logging,
+    init_forest_logging,
     inventory::Inventory,
-    meta::{FileState, FileTask},
+    meta::{
+        field::Field,
+        task::file::{FileState, FileTask},
+    },
     runtime::Runnable as _,
 };
 use std::path::PathBuf;

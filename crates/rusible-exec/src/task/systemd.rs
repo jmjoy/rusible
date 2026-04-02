@@ -1,6 +1,7 @@
 use crate::Error;
-use rusible_meta::{
-    SystemdDetails, SystemdState, SystemdTaskData, TaskDetails, TaskResult, TaskStatus,
+use rusible_meta::task::{
+    TaskDetails, TaskResult, TaskStatus,
+    systemd::{SystemdDetails, SystemdState, SystemdTaskData},
 };
 use tokio::process::Command;
 

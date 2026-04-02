@@ -1,5 +1,8 @@
 use crate::Error;
-use rusible_meta::{TaskDetails, TaskResult, TaskStatus, WaitForDetails, WaitForTaskData};
+use rusible_meta::task::{
+    TaskDetails, TaskResult, TaskStatus,
+    wait_for::{WaitForDetails, WaitForTaskData},
+};
 use std::{
     net::SocketAddr,
     time::{Duration, Instant},

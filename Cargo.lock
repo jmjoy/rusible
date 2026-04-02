@@ -1077,6 +1077,7 @@ dependencies = [
  "rusible",
  "rusible-exec",
  "tokio",
+ "toml",
  "tracing",
  "tracing-forest",
  "tracing-subscriber",

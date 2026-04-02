@@ -194,4 +194,17 @@ mod tests {
             ResolveValueError::Template(TemplateError::Render { .. })
         ));
     }
+
+    #[test]
+    fn field_resolves_templated_pathbuf() {
+        let context = toml::toml! {
+            app = { dir = "/tmp" }
+        };
+
+        let resolved = Field::<PathBuf>::tpl("{{ app.dir }}/example")
+            .resolve(&context)
+            .unwrap();
+
+        assert_eq!(resolved, Some(PathBuf::from("/tmp/example")));
+    }
 }

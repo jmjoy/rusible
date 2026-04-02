@@ -1,5 +1,8 @@
 use crate::Error;
-use rusible_meta::{TaskDetails, TaskResult, TaskStatus, UnarchiveDetails, UnarchiveTaskData};
+use rusible_meta::task::{
+    TaskDetails, TaskResult, TaskStatus,
+    unarchive::{UnarchiveDetails, UnarchiveTaskData},
+};
 use std::path::Path;
 use tokio::{fs, process::Command};
 

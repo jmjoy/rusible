@@ -1,5 +1,8 @@
 use crate::Error;
-use rusible_meta::{CommandDetails, CommandTaskData, TaskDetails, TaskResult, TaskStatus};
+use rusible_meta::task::{
+    TaskDetails, TaskResult, TaskStatus,
+    command::{CommandDetails, CommandTaskData},
+};
 use std::process::Stdio;
 use tokio::{fs, io::AsyncWriteExt, process::Command};
 
@@ -121,7 +124,10 @@ fn task_result(
 #[cfg(test)]
 mod tests {
     use super::execute;
-    use rusible_meta::{CommandDetails, CommandTaskData, TaskDetails, TaskStatus};
+    use rusible_meta::task::{
+        TaskDetails, TaskStatus,
+        command::{CommandDetails, CommandTaskData},
+    };
     use std::{
         env, fs,
         path::PathBuf,

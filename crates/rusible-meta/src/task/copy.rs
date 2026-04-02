@@ -1,7 +1,7 @@
 use super::{
     TaskDataSpec, TaskDetails, TaskSpec, TaskValidationError, resolve_optional, resolve_required,
 };
-use crate::Field;
+use crate::field::Field;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use toml::Table;

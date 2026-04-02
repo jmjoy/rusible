@@ -2,7 +2,7 @@ use super::{
     TaskDataSpec, TaskDetails, TaskSpec, TaskValidationError, invalid_field, resolve_optional,
     resolve_required,
 };
-use crate::{Field, ResolveValue, ResolveValueError};
+use crate::field::{Field, ResolveValue, ResolveValueError};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use toml::Table;
@@ -127,4 +127,30 @@ pub struct FileDetails {
     pub mode_changed: bool,
     #[serde(default)]
     pub ownership_changed: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_task_spec_extracts_file_details() {
+        let details = FileTask::try_from_details(TaskDetails::File(FileDetails {
+            path: PathBuf::from("/tmp/example"),
+            state: FileState::Touch,
+            created: false,
+            removed: false,
+            content_changed: false,
+            mode_changed: true,
+            ownership_changed: false,
+        }));
+
+        assert!(matches!(
+            details,
+            Some(FileDetails {
+                mode_changed: true,
+                ..
+            })
+        ));
+    }
 }

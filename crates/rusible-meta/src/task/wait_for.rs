@@ -2,7 +2,7 @@ use super::{
     TaskDataSpec, TaskDetails, TaskSpec, TaskValidationError, invalid_field, resolve_optional,
     resolve_or_default, resolve_required,
 };
-use crate::Field;
+use crate::field::Field;
 use serde::{Deserialize, Serialize};
 use toml::Table;
 
@@ -111,4 +111,25 @@ pub struct WaitForDetails {
 
 fn default_connect_timeout_secs() -> u64 {
     5
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn task_data_validate_rejects_invalid_wait_for() {
+        let error = WaitForTaskData {
+            name: None,
+            host: None,
+            port: 0,
+            delay_secs: 0,
+            timeout_secs: 0,
+            connect_timeout_secs: 0,
+        }
+        .validate()
+        .unwrap_err();
+
+        assert!(matches!(error, TaskValidationError::InvalidField { .. }));
+    }
 }

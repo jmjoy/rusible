@@ -1,6 +1,9 @@
 use super::file;
 use crate::Error;
-use rusible_meta::{CopyDetails, CopyTaskData, TaskDetails, TaskResult, TaskStatus};
+use rusible_meta::task::{
+    TaskDetails, TaskResult, TaskStatus,
+    copy::{CopyDetails, CopyTaskData},
+};
 use tokio::fs;
 
 pub(crate) async fn execute(task: &CopyTaskData) -> Result<TaskResult, Error> {

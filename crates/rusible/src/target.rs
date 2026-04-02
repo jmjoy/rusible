@@ -1,5 +1,4 @@
 use crate::{
-    VarError, VarLookupError,
     exec::{
         ensure_local_exec, execute_remote_task, initialize_remote_exec, run_exec_process,
         run_named_remote_with_json, run_remote_with_json, upload_remote_bytes, validate_local_exec,
@@ -7,7 +6,10 @@ use crate::{
     },
     inventory::Inventory,
     meta::{
-        Field, TaskData, TaskDataSpec, TaskDetails, TaskRequest, TaskResult, TaskSpec, TaskStatus,
+        field::Field,
+        task::{
+            TaskData, TaskDataSpec, TaskDetails, TaskRequest, TaskResult, TaskSpec, TaskStatus,
+        },
     },
     report::{
         BatchRunError, BatchRunReport, LocalRunError, LocalRunReport, RemoteRunError,
@@ -15,8 +17,8 @@ use crate::{
     },
     runtime::Runnable,
     vars::{
-        build_local_context, build_remote_context, get_table_path_string, merge_tables,
-        remove_table_path, set_table_path,
+        VarError, VarLookupError, build_local_context, build_remote_context, get_table_path_string,
+        merge_tables, remove_table_path, set_table_path,
     },
 };
 use std::{
@@ -586,6 +588,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::meta::field::{ResolveValueError, TemplateError};
 
     #[test]
     fn template_path_renders_remote_context_values() {
@@ -614,7 +617,7 @@ mod tests {
 
         assert!(matches!(
             error,
-            crate::meta::ResolveValueError::Template(crate::meta::TemplateError::Render { .. })
+            ResolveValueError::Template(TemplateError::Render { .. })
         ));
     }
 }

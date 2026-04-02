@@ -1,3 +1,5 @@
+//! Shell quoting helpers exposed as a focused utility module.
+
 use std::path::Path;
 
 pub use shlex::QuoteError;

@@ -1,5 +1,8 @@
 use crate::Error;
-use rusible_meta::{TaskDetails, TaskResult, TaskStatus, UserDetails, UserTaskData};
+use rusible_meta::task::{
+    TaskDetails, TaskResult, TaskStatus,
+    user::{UserDetails, UserTaskData},
+};
 use tokio::process::Command;
 
 pub(crate) async fn execute(task: &UserTaskData) -> Result<TaskResult, Error> {

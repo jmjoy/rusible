@@ -1,6 +1,7 @@
 use crate::{
-    meta::{TaskRequest, TaskResult, TaskStatus},
+    meta::task::{TaskRequest, TaskResult, TaskStatus},
     report::{RemoteRunReport, RuntimeError},
+    shell::shell_quote,
     target::{Remote, UploadOptions},
 };
 use russh::{
@@ -192,7 +193,7 @@ pub(crate) async fn initialize_remote_exec(
     }
     sftp.close().await.map_err(sftp_error)?;
 
-    let quoted_exec_path = crate::shell_quote(&exec_path)?;
+    let quoted_exec_path = shell_quote(&exec_path)?;
     session
         .run_simple_command(&format!("chmod 700 {quoted_exec_path}"))
         .await?;
@@ -235,8 +236,8 @@ async fn apply_remote_upload_options(
     session: &mut RemoteSession, remote_path: &str, options: &UploadOptions,
 ) -> Result<(), RuntimeError> {
     if let Some(mode) = &options.mode {
-        let quoted_mode = crate::shell_quote(mode)?;
-        let quoted_remote_path = crate::shell_quote(remote_path)?;
+        let quoted_mode = shell_quote(mode)?;
+        let quoted_remote_path = shell_quote(remote_path)?;
         session
             .run_simple_command(&format!("chmod {quoted_mode} {quoted_remote_path}"))
             .await?;
@@ -244,9 +245,9 @@ async fn apply_remote_upload_options(
 
     match (&options.owner, &options.group) {
         (Some(owner), Some(group)) => {
-            let quoted_owner = crate::shell_quote(owner)?;
-            let quoted_group = crate::shell_quote(group)?;
-            let quoted_remote_path = crate::shell_quote(remote_path)?;
+            let quoted_owner = shell_quote(owner)?;
+            let quoted_group = shell_quote(group)?;
+            let quoted_remote_path = shell_quote(remote_path)?;
             session
                 .run_simple_command(&format!(
                     "chown {quoted_owner}:{quoted_group} {quoted_remote_path}"
@@ -254,15 +255,15 @@ async fn apply_remote_upload_options(
                 .await?;
         }
         (Some(owner), None) => {
-            let quoted_owner = crate::shell_quote(owner)?;
-            let quoted_remote_path = crate::shell_quote(remote_path)?;
+            let quoted_owner = shell_quote(owner)?;
+            let quoted_remote_path = shell_quote(remote_path)?;
             session
                 .run_simple_command(&format!("chown {quoted_owner} {quoted_remote_path}"))
                 .await?;
         }
         (None, Some(group)) => {
-            let quoted_group = crate::shell_quote(group)?;
-            let quoted_remote_path = crate::shell_quote(remote_path)?;
+            let quoted_group = shell_quote(group)?;
+            let quoted_remote_path = shell_quote(remote_path)?;
             session
                 .run_simple_command(&format!("chgrp {quoted_group} {quoted_remote_path}"))
                 .await?;
@@ -277,7 +278,7 @@ pub(crate) async fn validate_remote_exec(
     remote: &Remote, exec_path: &str,
 ) -> Result<(), RuntimeError> {
     let mut session = RemoteSession::connect(remote).await?;
-    let quoted_exec_path = crate::shell_quote(exec_path)?;
+    let quoted_exec_path = shell_quote(exec_path)?;
     let command = format!("{quoted_exec_path} --version");
     debug!(host = %remote.host, port = remote.port, "validating remote rusible-exec");
     let output = session.run_command(&command, None).await?;
@@ -296,7 +297,7 @@ pub(crate) async fn execute_remote_task(
 ) -> Result<TaskResult, RuntimeError> {
     let mut session = RemoteSession::connect(remote).await?;
     debug!(host = %remote.host, port = remote.port, payload_bytes = task_json.len(), "executing remote task");
-    let quoted_exec_path = crate::shell_quote(exec_path)?;
+    let quoted_exec_path = shell_quote(exec_path)?;
     let output = session
         .run_command(&quoted_exec_path, Some(task_json.as_bytes()))
         .await?;

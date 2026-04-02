@@ -1,5 +1,8 @@
 use crate::Error;
-use rusible_meta::{FileDetails, FileState, FileTaskData, TaskDetails, TaskResult, TaskStatus};
+use rusible_meta::task::{
+    TaskDetails, TaskResult, TaskStatus,
+    file::{FileDetails, FileState, FileTaskData},
+};
 use std::{os::unix::fs::PermissionsExt, path::Path};
 use tokio::{
     fs::{self, OpenOptions},

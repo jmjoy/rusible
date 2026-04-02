@@ -1,10 +1,12 @@
 use crate::{
-    VarError, VarLookupError,
     report::RuntimeError,
     target::{Remote, UploadOptions, UploadReport, resolve_upload_path},
-    vars::{get_table_path_string, merge_tables, remove_table_path, set_table_path},
+    vars::{
+        VarError, VarLookupError, get_table_path_string, merge_tables, remove_table_path,
+        set_table_path,
+    },
 };
-use rusible_meta::Field;
+use rusible_meta::field::Field;
 use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},

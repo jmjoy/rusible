@@ -14,6 +14,7 @@ anyhow = { workspace = true }
 rusible = { workspace = true }
 rusible-exec = { path = "../../crates/rusible-exec", artifact = "bin" }
 tokio = { workspace = true, features = ["full"] }
+toml = { workspace = true }
 tracing = { workspace = true }
 tracing-forest = { workspace = true }
 tracing-subscriber = { workspace = true }

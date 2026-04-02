@@ -1,14 +1,26 @@
 use anyhow::bail;
 use rusible::{
-    Field, UploadOptions, VarLookupError, init_forest_logging,
+    init_forest_logging,
     inventory::{Host, Inventory},
     meta::{
-        CommandTask, CopyTask, DownloadTask, FileState, FileTask, ShellTask, StatTask,
-        SystemdState, SystemdTask, UnarchiveTask, UserTask, WaitForTask,
+        field::Field,
+        task::{
+            command::CommandTask,
+            copy::CopyTask,
+            download::DownloadTask,
+            file::{FileState, FileTask},
+            shell::ShellTask,
+            stat::StatTask,
+            systemd::{SystemdState, SystemdTask},
+            unarchive::UnarchiveTask,
+            user::UserTask,
+            wait_for::WaitForTask,
+        },
     },
     runtime::Runnable as _,
-    shell_quote, shell_quote_path,
-    target::Local,
+    shell::{shell_quote, shell_quote_path},
+    target::{Local, UploadOptions},
+    vars::VarLookupError,
 };
 use std::{
     env::temp_dir,
