@@ -1,4 +1,4 @@
-use crate::meta::{TaskDetails, TaskResult, TaskSpec, TaskStatus};
+use crate::meta::{TaskDetails, TaskResult, TaskSpec, TaskStatus, TaskValidationError};
 use rusible_template::TemplateError;
 use std::{backtrace::Backtrace, path::PathBuf};
 
@@ -12,6 +12,15 @@ pub struct LocalRunReport<D = TaskDetails> {
 impl From<TemplateError> for RuntimeError {
     fn from(source: TemplateError) -> Self {
         Self::TemplateRender {
+            message: source.to_string(),
+            backtrace: Backtrace::capture(),
+        }
+    }
+}
+
+impl From<TaskValidationError> for RuntimeError {
+    fn from(source: TaskValidationError) -> Self {
+        Self::TaskValidation {
             message: source.to_string(),
             backtrace: Backtrace::capture(),
         }
@@ -101,6 +110,12 @@ pub enum RuntimeError {
 
     #[error("template render failed: {message}")]
     TemplateRender {
+        message: String,
+        backtrace: Backtrace,
+    },
+
+    #[error("task validation failed: {message}")]
+    TaskValidation {
         message: String,
         backtrace: Backtrace,
     },

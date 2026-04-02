@@ -1,6 +1,6 @@
 use rusible::{
-    init_forest_logging,
-    meta::TemplateTask,
+    Field, init_forest_logging,
+    meta::{FileState, FileTask},
     runtime::Runnable as _,
     target::Remote,
     toml,
@@ -55,13 +55,13 @@ async fn main() -> anyhow::Result<()> {
     remotes.init(RUSIBLE_EXEC_BYTES).await?;
 
     remotes
-        .run(TemplateTask {
-            name: Some("Render hello world template".to_string()),
-            dest: PathBuf::from("/tmp/hello-world.txt"),
-            content: include_str!("hello-world.j2").to_string(),
-            owner: None,
-            group: None,
-            mode: Some("0644".to_string()),
+        .run(FileTask {
+            name: "Render hello world template".into(),
+            path: PathBuf::from("/tmp/hello-world.txt").into(),
+            state: FileState::File.into(),
+            content: Field::tpl(include_str!("hello-world.j2")),
+            mode: "0644".into(),
+            ..Default::default()
         })
         .await?;
 

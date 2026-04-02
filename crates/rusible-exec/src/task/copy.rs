@@ -1,21 +1,19 @@
 use super::file;
 use crate::Error;
-use rusible_template::ResolveTemplate;
-use rusible_meta::{CopyDetails, CopyTask, TaskDetails, TaskResult, TaskStatus};
+use rusible_meta::{CopyDetails, CopyTaskData, TaskDetails, TaskResult, TaskStatus};
 use tokio::fs;
 
-pub(crate) async fn execute(task: &CopyTask, context: &toml::Table) -> Result<TaskResult, Error> {
+pub(crate) async fn execute(task: &CopyTaskData) -> Result<TaskResult, Error> {
     let mut changes = file::FileChangeSummary::default();
-    let src = task.src.resolve(context)?;
-    let dest = task.dest.resolve(context)?;
+    let src = task.src.clone();
+    let dest = task.dest.clone();
 
     let source = fs::read(&src).await?;
 
-    if let Some(parent) = dest.parent() {
-        if !parent.as_os_str().is_empty() && !fs::try_exists(parent).await? {
+    if let Some(parent) = dest.parent()
+        && !parent.as_os_str().is_empty() && !fs::try_exists(parent).await? {
             fs::create_dir_all(parent).await?;
         }
-    }
 
     match fs::read(&dest).await {
         Ok(current) => {
@@ -46,11 +44,23 @@ pub(crate) async fn execute(task: &CopyTask, context: &toml::Table) -> Result<Ta
     };
 
     Ok(TaskResult {
-        status: if changes.any() { TaskStatus::Changed } else { TaskStatus::Ok },
-        message: Some(if changes.any() {
-            format!("copied {} to {}", details.src.display(), details.dest.display())
+        status: if changes.any() {
+            TaskStatus::Changed
         } else {
-            format!("{} already matches {}", details.dest.display(), details.src.display())
+            TaskStatus::Ok
+        },
+        message: Some(if changes.any() {
+            format!(
+                "copied {} to {}",
+                details.src.display(),
+                details.dest.display()
+            )
+        } else {
+            format!(
+                "{} already matches {}",
+                details.dest.display(),
+                details.src.display()
+            )
         }),
         details: Some(TaskDetails::Copy(details)),
     })

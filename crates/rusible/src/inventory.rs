@@ -302,12 +302,13 @@ impl Inventory {
             let context = host
                 .remote()
                 .build_context(Some(&self.vars), Some(host.name()));
-            let rendered_local_path = local_path.resolve(&context).map_err(|source| {
-                InventoryUploadError::Runtime {
-                    host: host.name().to_string(),
-                    source: RuntimeError::from(source),
-                }
-            })?;
+            let rendered_local_path =
+                local_path
+                    .resolve(&context)
+                    .map_err(|source| InventoryUploadError::Runtime {
+                        host: host.name().to_string(),
+                        source: RuntimeError::from(source),
+                    })?;
             let UploadReport {
                 remote_path,
                 bytes_written,
@@ -367,9 +368,7 @@ pub enum InventoryLoadError {
     },
 
     #[error("invalid inventory TOML: {source}")]
-    Toml {
-        source: toml::de::Error,
-    },
+    Toml { source: toml::de::Error },
 
     #[error("invalid inventory TOML in {path}: {source}")]
     TomlFile {
@@ -382,7 +381,8 @@ pub enum InventoryLoadError {
     UnknownTopLevelKey { key: String },
 
     #[error(
-        "unknown top-level inventory key `{key}` in {path}; expected only `vars`, `groups`, or `hosts`"
+        "unknown top-level inventory key `{key}` in {path}; expected only `vars`, `groups`, or \
+         `hosts`"
     )]
     UnknownTopLevelKeyFile { path: PathBuf, key: String },
 
@@ -580,10 +580,11 @@ async fn load_inventory_toml(path: &Path) -> Result<InventoryToml, InventoryLoad
                 path: file.clone(),
                 source,
             })?;
-        let table = toml::from_str::<Table>(&input).map_err(|source| InventoryLoadError::TomlFile {
-            path: file.clone(),
-            source,
-        })?;
+        let table =
+            toml::from_str::<Table>(&input).map_err(|source| InventoryLoadError::TomlFile {
+                path: file.clone(),
+                source,
+            })?;
         validate_inventory_table(&table, Some(&file))?;
         merge_inventory_tables(&mut merged, table);
     }
@@ -603,13 +604,14 @@ async fn collect_inventory_toml_files(root: &Path) -> Result<Vec<PathBuf>, Inven
                 source,
             })?;
 
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .map_err(|source| InventoryLoadError::Io {
-                path: dir.clone(),
-                source,
-            })?
+        while let Some(entry) =
+            entries
+                .next_entry()
+                .await
+                .map_err(|source| InventoryLoadError::Io {
+                    path: dir.clone(),
+                    source,
+                })?
         {
             let path = entry.path();
             let file_type = entry
@@ -625,13 +627,16 @@ async fn collect_inventory_toml_files(root: &Path) -> Result<Vec<PathBuf>, Inven
                 continue;
             }
 
-            if file_type.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
+            if file_type.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("toml")
+            {
                 files.push(path);
             }
         }
     }
 
-    files.sort_by(|left, right| inventory_sort_key(root, left).cmp(&inventory_sort_key(root, right)));
+    files.sort_by(|left, right| {
+        inventory_sort_key(root, left).cmp(&inventory_sort_key(root, right))
+    });
     Ok(files)
 }
 
@@ -666,9 +671,7 @@ fn merge_inventory_tables(base: &mut Table, overlay: Table) {
     }
 }
 
-fn validate_inventory_table(
-    table: &Table, path: Option<&Path>,
-) -> Result<(), InventoryLoadError> {
+fn validate_inventory_table(table: &Table, path: Option<&Path>) -> Result<(), InventoryLoadError> {
     for key in table.keys() {
         if matches!(key.as_str(), "vars" | "groups" | "hosts") {
             continue;

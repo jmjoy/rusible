@@ -114,7 +114,10 @@ async fn run_exec_process_with_json(
     exec_path: &Path, task_json: &str,
 ) -> Result<TaskResult, RuntimeError> {
     let printable = path_to_string(exec_path);
-    debug!(payload_bytes = task_json.len(), "spawning local rusible-exec process");
+    debug!(
+        payload_bytes = task_json.len(),
+        "spawning local rusible-exec process"
+    );
     let mut command = Command::new(exec_path);
     command
         .stdin(Stdio::piped())

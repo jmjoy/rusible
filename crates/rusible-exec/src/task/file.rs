@@ -1,9 +1,6 @@
 use crate::Error;
-use rusible_meta::{FileDetails, FileState, FileTask, TaskDetails, TaskResult, TaskStatus};
-use std::{
-    os::unix::fs::PermissionsExt,
-    path::Path,
-};
+use rusible_meta::{FileDetails, FileState, FileTaskData, TaskDetails, TaskResult, TaskStatus};
+use std::{os::unix::fs::PermissionsExt, path::Path};
 use tokio::{
     fs::{self, OpenOptions},
     process::Command,
@@ -38,19 +35,9 @@ impl FileChangeSummary {
             ownership_changed: self.ownership_changed,
         }
     }
-
-    pub(crate) fn into_template_details(self, dest: &Path) -> rusible_meta::TemplateDetails {
-        rusible_meta::TemplateDetails {
-            dest: dest.to_path_buf(),
-            created: self.created,
-            content_changed: self.content_changed,
-            mode_changed: self.mode_changed,
-            ownership_changed: self.ownership_changed,
-        }
-    }
 }
 
-pub(crate) async fn execute(task: &FileTask) -> Result<TaskResult, Error> {
+pub(crate) async fn execute(task: &FileTaskData) -> Result<TaskResult, Error> {
     match task.state {
         FileState::Absent => ensure_absent(&task.path).await,
         FileState::Directory => ensure_directory(task).await,
@@ -91,7 +78,7 @@ async fn ensure_absent(path: &Path) -> Result<TaskResult, Error> {
     ))
 }
 
-async fn ensure_directory(task: &FileTask) -> Result<TaskResult, Error> {
+async fn ensure_directory(task: &FileTaskData) -> Result<TaskResult, Error> {
     let mut changes = FileChangeSummary::default();
 
     if !matches!(fs::symlink_metadata(&task.path).await, Ok(metadata) if metadata.is_dir()) {
@@ -121,14 +108,13 @@ async fn ensure_directory(task: &FileTask) -> Result<TaskResult, Error> {
     ))
 }
 
-async fn ensure_file(task: &FileTask) -> Result<TaskResult, Error> {
+async fn ensure_file(task: &FileTaskData) -> Result<TaskResult, Error> {
     let mut changes = FileChangeSummary::default();
 
-    if let Some(parent) = task.path.parent() {
-        if !parent.as_os_str().is_empty() && !fs::try_exists(parent).await? {
+    if let Some(parent) = task.path.parent()
+        && !parent.as_os_str().is_empty() && !fs::try_exists(parent).await? {
             fs::create_dir_all(parent).await?;
         }
-    }
 
     if !fs::try_exists(&task.path).await? {
         OpenOptions::new()
@@ -170,14 +156,13 @@ async fn ensure_file(task: &FileTask) -> Result<TaskResult, Error> {
     ))
 }
 
-async fn ensure_touch(task: &FileTask) -> Result<TaskResult, Error> {
+async fn ensure_touch(task: &FileTaskData) -> Result<TaskResult, Error> {
     let existed = fs::try_exists(&task.path).await?;
 
-    if let Some(parent) = task.path.parent() {
-        if !parent.as_os_str().is_empty() && !fs::try_exists(parent).await? {
+    if let Some(parent) = task.path.parent()
+        && !parent.as_os_str().is_empty() && !fs::try_exists(parent).await? {
             fs::create_dir_all(parent).await?;
         }
-    }
 
     let status = Command::new("touch").arg(&task.path).status().await?;
     if !status.success() {
@@ -239,9 +224,7 @@ pub(crate) async fn apply_mode(path: &Path, mode: Option<&str>) -> Result<bool, 
 }
 
 pub(crate) async fn apply_owner_group(
-    path: &Path,
-    owner: Option<&str>,
-    group: Option<&str>,
+    path: &Path, owner: Option<&str>, group: Option<&str>,
 ) -> Result<bool, Error> {
     let Some(spec) = build_owner_group_spec(owner, group) else {
         return Ok(false);

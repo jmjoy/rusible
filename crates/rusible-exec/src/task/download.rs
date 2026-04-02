@@ -1,19 +1,15 @@
 use super::file;
 use crate::Error;
-use rusible_template::ResolveTemplate;
-use rusible_meta::{DownloadDetails, DownloadTask, TaskDetails, TaskResult, TaskStatus};
+use rusible_meta::{DownloadDetails, DownloadTaskData, TaskDetails, TaskResult, TaskStatus};
 use tokio::fs;
 
-pub(crate) async fn execute(
-    task: &DownloadTask, context: &toml::Table,
-) -> Result<TaskResult, Error> {
-    let dest = task.dest.resolve(context)?;
+pub(crate) async fn execute(task: &DownloadTaskData) -> Result<TaskResult, Error> {
+    let dest = task.dest.clone();
 
-    if let Some(parent) = dest.parent() {
-        if !parent.as_os_str().is_empty() {
+    if let Some(parent) = dest.parent()
+        && !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent).await?;
         }
-    }
 
     let destination_exists = fs::try_exists(&dest).await?;
     let mut downloaded = false;
@@ -70,8 +66,7 @@ fn temporary_download_path(dest: &std::path::Path) -> std::path::PathBuf {
 #[cfg(test)]
 mod tests {
     use super::execute;
-    use rusible_meta::{DownloadDetails, DownloadTask, TaskDetails, TaskStatus};
-    use toml::Table;
+    use rusible_meta::{DownloadDetails, DownloadTaskData, TaskDetails, TaskStatus};
     use std::{
         env, fs,
         io::{Read, Write},
@@ -86,14 +81,15 @@ mod tests {
         let (url, server) = spawn_http_server(b"hello world");
         let destination = unique_temp_path("downloaded");
 
-        let result = execute(&DownloadTask {
+        let result = execute(&DownloadTaskData {
+            name: None,
             url,
-            dest: destination.clone().into(),
+            dest: destination.clone(),
             force: false,
             owner: None,
             group: None,
             mode: None,
-        }, &Table::new())
+        })
         .await
         .unwrap();
 
@@ -114,26 +110,19 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn download_task_renders_templated_destination() {
+    async fn download_task_writes_to_resolved_destination() {
         let (url, server) = spawn_http_server(b"templated");
         let destination = unique_temp_path("templated");
-        let parent = destination.parent().unwrap().to_path_buf();
-        let file_name = destination.file_name().unwrap().to_string_lossy().into_owned();
-        let context = toml::toml! {
-            paths = { dir = (parent.display().to_string()), file = file_name }
-        };
 
-        let result = execute(
-            &DownloadTask {
-                url,
-                dest: rusible_meta::TemplatedPath::new("{{ paths.dir }}/{{ paths.file }}"),
-                force: false,
-                owner: None,
-                group: None,
-                mode: None,
-            },
-            &context,
-        )
+        let result = execute(&DownloadTaskData {
+            name: None,
+            url,
+            dest: destination.clone(),
+            force: false,
+            owner: None,
+            group: None,
+            mode: None,
+        })
         .await
         .unwrap();
 
@@ -158,14 +147,15 @@ mod tests {
         let destination = unique_temp_path("existing");
         fs::write(&destination, "existing").unwrap();
 
-        let result = execute(&DownloadTask {
+        let result = execute(&DownloadTaskData {
+            name: None,
             url: "http://127.0.0.1:9/unused".to_string(),
-            dest: destination.clone().into(),
+            dest: destination.clone(),
             force: false,
             owner: None,
             group: None,
             mode: None,
-        }, &Table::new())
+        })
         .await
         .unwrap();
 

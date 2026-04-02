@@ -1,15 +1,11 @@
 use crate::Error;
-use rusible_meta::{ShellDetails, ShellTask, TaskDetails, TaskResult, TaskStatus};
+use rusible_meta::{ShellDetails, ShellTaskData, TaskDetails, TaskResult, TaskStatus};
 use std::process::Stdio;
-use tokio::{
-    fs,
-    io::AsyncWriteExt,
-    process::Command,
-};
+use tokio::{fs, io::AsyncWriteExt, process::Command};
 
-pub(crate) async fn execute(task: &ShellTask) -> Result<TaskResult, Error> {
-    if let Some(path) = task.creates.as_deref() {
-        if fs::try_exists(path).await? {
+pub(crate) async fn execute(task: &ShellTaskData) -> Result<TaskResult, Error> {
+    if let Some(path) = task.creates.as_deref()
+        && fs::try_exists(path).await? {
             return Ok(task_result(
                 TaskStatus::Skipped,
                 format!(
@@ -25,10 +21,9 @@ pub(crate) async fn execute(task: &ShellTask) -> Result<TaskResult, Error> {
                 },
             ));
         }
-    }
 
-    if let Some(path) = task.removes.as_deref() {
-        if !fs::try_exists(path).await? {
+    if let Some(path) = task.removes.as_deref()
+        && !fs::try_exists(path).await? {
             return Ok(task_result(
                 TaskStatus::Skipped,
                 format!(
@@ -44,7 +39,6 @@ pub(crate) async fn execute(task: &ShellTask) -> Result<TaskResult, Error> {
                 },
             ));
         }
-    }
 
     let mut command = Command::new("/bin/sh");
     command
@@ -78,11 +72,10 @@ pub(crate) async fn execute(task: &ShellTask) -> Result<TaskResult, Error> {
         }
     };
 
-    if let Some(stdin) = &task.stdin {
-        if let Some(mut child_stdin) = child.stdin.take() {
+    if let Some(stdin) = &task.stdin
+        && let Some(mut child_stdin) = child.stdin.take() {
             child_stdin.write_all(stdin.as_bytes()).await?;
         }
-    }
 
     let output = child.wait_with_output().await?;
     let rc = output.status.code();
@@ -111,7 +104,9 @@ pub(crate) async fn execute(task: &ShellTask) -> Result<TaskResult, Error> {
     }
 }
 
-fn task_result(status: TaskStatus, message: impl Into<String>, details: ShellDetails) -> TaskResult {
+fn task_result(
+    status: TaskStatus, message: impl Into<String>, details: ShellDetails,
+) -> TaskResult {
     TaskResult {
         status,
         message: Some(message.into()),

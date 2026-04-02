@@ -1,12 +1,8 @@
 mod task;
 
 use clap::Parser;
-use rusible_template::TemplateError;
-use rusible_meta::{TaskRequest, TaskResult};
-use std::{
-    io,
-    process::ExitCode,
-};
+use rusible_meta::{TaskRequest, TaskResult, TaskValidationError};
+use std::{io, process::ExitCode};
 use tokio::io::AsyncReadExt;
 
 #[derive(Debug, Parser)]
@@ -25,7 +21,7 @@ enum Error {
     Http(#[from] reqwest::Error),
 
     #[error(transparent)]
-    Template(#[from] TemplateError),
+    Validation(#[from] TaskValidationError),
 
     #[error("command `{program}` failed with status {status}: {stderr}")]
     CommandFailed {

@@ -3,8 +3,68 @@ use std::path::PathBuf;
 use toml::Table;
 
 #[test]
-fn task_round_trips_as_json() {
+fn task_resolves_into_task_data() {
     let task = Task::File(FileTask {
+        name: "ensure example file".into(),
+        path: PathBuf::from("/tmp/example").into(),
+        state: FileState::File.into(),
+        owner: "root".into(),
+        group: Field::Nil,
+        mode: "0644".into(),
+        content: "hello".into(),
+    });
+
+    let resolved = task.resolve(&Table::new()).unwrap();
+
+    assert_eq!(
+        resolved,
+        TaskData::File(FileTaskData {
+            name: Some("ensure example file".to_string()),
+            path: PathBuf::from("/tmp/example"),
+            state: FileState::File,
+            owner: Some("root".to_string()),
+            group: None,
+            mode: Some("0644".to_string()),
+            content: Some("hello".to_string()),
+        })
+    );
+}
+
+#[test]
+fn task_resolves_templates_before_transport() {
+    let context = toml::toml! {
+        region = "cn-north-1"
+    };
+
+    let resolved = Task::File(FileTask {
+        name: "render example template".into(),
+        path: PathBuf::from("/tmp/example").into(),
+        state: FileState::File.into(),
+        content: Field::tpl("hello {{ region }}"),
+        owner: Field::Nil,
+        group: Field::Nil,
+        mode: Field::Nil,
+    })
+    .resolve(&context)
+    .unwrap();
+
+    assert_eq!(
+        resolved,
+        TaskData::File(FileTaskData {
+            name: Some("render example template".to_string()),
+            path: PathBuf::from("/tmp/example"),
+            state: FileState::File,
+            content: Some("hello cn-north-1".to_string()),
+            owner: None,
+            group: None,
+            mode: None,
+        })
+    );
+}
+
+#[test]
+fn task_data_round_trips_as_json() {
+    let task = TaskData::File(FileTaskData {
         name: Some("ensure example file".to_string()),
         path: PathBuf::from("/tmp/example"),
         state: FileState::File,
@@ -15,30 +75,22 @@ fn task_round_trips_as_json() {
     });
 
     let json = serde_json::to_string(&task).unwrap();
-    let decoded: Task = serde_json::from_str(&json).unwrap();
+    let decoded: TaskData = serde_json::from_str(&json).unwrap();
 
     assert_eq!(decoded, task);
 }
 
 #[test]
 fn task_request_round_trips_as_json() {
-    let mut context = Table::new();
-    context.insert(
-        "region".to_string(),
-        toml::Value::String("cn-north-1".to_string()),
-    );
-
-    let request = TaskRequest::new(
-        Task::Template(TemplateTask {
-            name: Some("render example template".to_string()),
-            dest: PathBuf::from("/tmp/example"),
-            content: "hello {{ region }}".to_string(),
-            owner: None,
-            group: None,
-            mode: None,
-        }),
-        context,
-    );
+    let request = TaskRequest::new(FileTaskData {
+        name: Some("render example template".to_string()),
+        path: PathBuf::from("/tmp/example"),
+        state: FileState::File,
+        content: Some("hello cn-north-1".to_string()),
+        owner: None,
+        group: None,
+        mode: None,
+    });
 
     let json = serde_json::to_string(&request).unwrap();
     let decoded: TaskRequest = serde_json::from_str(&json).unwrap();
@@ -65,84 +117,6 @@ fn task_result_with_details_round_trips_as_json() {
 }
 
 #[test]
-fn file_task_converts_into_task() {
-    let task: Task = FileTask {
-        name: None,
-        path: PathBuf::from("/tmp/example"),
-        state: FileState::Touch,
-        owner: None,
-        group: None,
-        mode: None,
-        content: None,
-    }
-    .into();
-
-    assert!(matches!(task, Task::File(_)));
-}
-
-#[test]
-fn template_task_converts_into_task() {
-    let task: Task = TemplateTask {
-        name: None,
-        dest: PathBuf::from("/tmp/example"),
-        content: "hello".to_string(),
-        owner: None,
-        group: None,
-        mode: None,
-    }
-    .into();
-
-    assert!(matches!(task, Task::Template(_)));
-}
-
-#[test]
-fn command_task_converts_into_task() {
-    let task: Task = CommandTask {
-        name: None,
-        cmd: Some("echo hello".to_string()),
-        argv: None,
-        chdir: Some(PathBuf::from("/tmp")),
-        creates: None,
-        removes: None,
-        stdin: None,
-    }
-    .into();
-
-    assert!(matches!(task, Task::Command(_)));
-}
-
-#[test]
-fn copy_task_converts_into_task() {
-    let task: Task = CopyTask {
-        name: None,
-        src: PathBuf::from("/tmp/src").into(),
-        dest: PathBuf::from("/tmp/dest").into(),
-        owner: None,
-        group: None,
-        mode: Some("0755".to_string()),
-    }
-    .into();
-
-    assert!(matches!(task, Task::Copy(_)));
-}
-
-#[test]
-fn download_task_converts_into_task() {
-    let task: Task = DownloadTask {
-        name: None,
-        url: "https://example.com/archive.tar.gz".to_string(),
-        dest: PathBuf::from("/tmp/archive.tar.gz").into(),
-        force: false,
-        owner: None,
-        group: None,
-        mode: Some("0644".to_string()),
-    }
-    .into();
-
-    assert!(matches!(task, Task::Download(_)));
-}
-
-#[test]
 fn template_path_round_trips_as_json() {
     let literal = TemplatedPath::from(PathBuf::from("/tmp/example"));
     let templated = TemplatedPath::new("{{ app.dir }}/example");
@@ -150,94 +124,14 @@ fn template_path_round_trips_as_json() {
     let literal_json = serde_json::to_string(&literal).unwrap();
     let templated_json = serde_json::to_string(&templated).unwrap();
 
-    assert_eq!(serde_json::from_str::<TemplatedPath>(&literal_json).unwrap(), literal);
+    assert_eq!(
+        serde_json::from_str::<TemplatedPath>(&literal_json).unwrap(),
+        literal
+    );
     assert_eq!(
         serde_json::from_str::<TemplatedPath>(&templated_json).unwrap(),
         templated
     );
-}
-
-#[test]
-fn shell_task_converts_into_task() {
-    let task: Task = ShellTask {
-        name: None,
-        cmd: "echo hello | cat".to_string(),
-        chdir: Some(PathBuf::from("/tmp")),
-        creates: None,
-        removes: None,
-        stdin: None,
-    }
-    .into();
-
-    assert!(matches!(task, Task::Shell(_)));
-}
-
-#[test]
-fn stat_task_converts_into_task() {
-    let task: Task = StatTask {
-        name: None,
-        path: PathBuf::from("/tmp/example"),
-    }
-    .into();
-
-    assert!(matches!(task, Task::Stat(_)));
-}
-
-#[test]
-fn systemd_task_converts_into_task() {
-    let task: Task = SystemdTask {
-        name: None,
-        unit: "etcd.service".to_string(),
-        daemon_reload: true,
-        enabled: Some(true),
-        state: Some(SystemdState::Started),
-    }
-    .into();
-
-    assert!(matches!(task, Task::Systemd(_)));
-}
-
-#[test]
-fn unarchive_task_converts_into_task() {
-    let task: Task = UnarchiveTask {
-        name: None,
-        src: PathBuf::from("/tmp/archive.tar.gz"),
-        dest: PathBuf::from("/tmp"),
-        creates: Some(PathBuf::from("/tmp/bin")),
-    }
-    .into();
-
-    assert!(matches!(task, Task::Unarchive(_)));
-}
-
-#[test]
-fn user_task_converts_into_task() {
-    let task: Task = UserTask {
-        name: None,
-        username: "etcd".to_string(),
-        system: true,
-        create_home: false,
-        shell: Some(PathBuf::from("/usr/sbin/nologin")),
-        home: None,
-    }
-    .into();
-
-    assert!(matches!(task, Task::User(_)));
-}
-
-#[test]
-fn wait_for_task_converts_into_task() {
-    let task: Task = WaitForTask {
-        name: None,
-        port: 2379,
-        host: Some("127.0.0.1".to_string()),
-        delay_secs: 1,
-        timeout_secs: 30,
-        connect_timeout_secs: 5,
-    }
-    .into();
-
-    assert!(matches!(task, Task::WaitFor(_)));
 }
 
 #[test]
@@ -262,26 +156,7 @@ fn file_task_spec_extracts_file_details() {
 }
 
 #[test]
-fn command_task_spec_extracts_command_details() {
-    let details = CommandTask::try_from_details(TaskDetails::Command(CommandDetails {
-        cmd: vec!["echo".to_string(), "hello".to_string()],
-        chdir: Some(PathBuf::from("/tmp")),
-        rc: Some(0),
-        stdout: "hello\n".to_string(),
-        stderr: String::new(),
-    }));
-
-    assert!(matches!(
-        details,
-        Some(CommandDetails {
-            rc: Some(0),
-            ..
-        })
-    ));
-}
-
-#[test]
-fn command_result_with_details_round_trips_as_json() {
+fn task_result_with_command_details_round_trips_as_json() {
     let result = TaskResult::changed("command executed").with_details(TaskDetails::Command(
         CommandDetails {
             cmd: vec!["echo".to_string(), "hello".to_string()],
@@ -299,7 +174,7 @@ fn command_result_with_details_round_trips_as_json() {
 }
 
 #[test]
-fn download_result_with_details_round_trips_as_json() {
+fn task_result_with_download_details_round_trips_as_json() {
     let result = TaskResult::changed("downloaded file").with_details(TaskDetails::Download(
         DownloadDetails {
             url: "https://example.com/archive.tar.gz".to_string(),
@@ -318,7 +193,7 @@ fn download_result_with_details_round_trips_as_json() {
 }
 
 #[test]
-fn stat_result_with_details_round_trips_as_json() {
+fn task_result_with_stat_details_round_trips_as_json() {
     let result = TaskResult::ok("path inspected").with_details(TaskDetails::Stat(StatDetails {
         path: PathBuf::from("/tmp/example"),
         exists: true,
@@ -335,7 +210,7 @@ fn stat_result_with_details_round_trips_as_json() {
 }
 
 #[test]
-fn copy_result_with_details_round_trips_as_json() {
+fn task_result_with_copy_details_round_trips_as_json() {
     let result = TaskResult::changed("copied file").with_details(TaskDetails::Copy(CopyDetails {
         src: PathBuf::from("/tmp/src"),
         dest: PathBuf::from("/tmp/dest"),
@@ -349,4 +224,20 @@ fn copy_result_with_details_round_trips_as_json() {
     let decoded: TaskResult = serde_json::from_str(&json).unwrap();
 
     assert_eq!(decoded, result);
+}
+
+#[test]
+fn task_data_validate_rejects_invalid_wait_for() {
+    let error = WaitForTaskData {
+        name: None,
+        host: None,
+        port: 0,
+        delay_secs: 0,
+        timeout_secs: 0,
+        connect_timeout_secs: 0,
+    }
+    .validate()
+    .unwrap_err();
+
+    assert!(matches!(error, TaskValidationError::InvalidField { .. }));
 }

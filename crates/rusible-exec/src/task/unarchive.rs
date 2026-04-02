@@ -1,11 +1,11 @@
 use crate::Error;
-use rusible_meta::{TaskDetails, TaskResult, TaskStatus, UnarchiveDetails, UnarchiveTask};
+use rusible_meta::{TaskDetails, TaskResult, TaskStatus, UnarchiveDetails, UnarchiveTaskData};
 use std::path::Path;
 use tokio::{fs, process::Command};
 
-pub(crate) async fn execute(task: &UnarchiveTask) -> Result<TaskResult, Error> {
-    if let Some(creates) = task.creates.as_deref() {
-        if fs::try_exists(creates).await? {
+pub(crate) async fn execute(task: &UnarchiveTaskData) -> Result<TaskResult, Error> {
+    if let Some(creates) = task.creates.as_deref()
+        && fs::try_exists(creates).await? {
             return Ok(TaskResult {
                 status: TaskStatus::Skipped,
                 message: Some(format!(
@@ -21,7 +21,6 @@ pub(crate) async fn execute(task: &UnarchiveTask) -> Result<TaskResult, Error> {
                 })),
             });
         }
-    }
 
     fs::create_dir_all(&task.dest).await?;
 
@@ -31,7 +30,11 @@ pub(crate) async fn execute(task: &UnarchiveTask) -> Result<TaskResult, Error> {
     let output = command.output().await?;
     if !output.status.success() {
         return Err(Error::CommandFailed {
-            program: format!("tar {flag} {} -C {}", task.src.display(), task.dest.display()),
+            program: format!(
+                "tar {flag} {} -C {}",
+                task.src.display(),
+                task.dest.display()
+            ),
             status: output.status.code().unwrap_or(-1),
             stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
         });
@@ -54,7 +57,10 @@ pub(crate) async fn execute(task: &UnarchiveTask) -> Result<TaskResult, Error> {
 }
 
 fn extract_flag(path: &Path) -> &'static str {
-    let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
 
     if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
         "-xzf"

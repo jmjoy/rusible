@@ -1,17 +1,13 @@
 use crate::Error;
-use rusible_meta::{CommandDetails, CommandTask, TaskDetails, TaskResult, TaskStatus};
-use std::{io, process::Stdio};
-use tokio::{
-    fs,
-    io::AsyncWriteExt,
-    process::Command,
-};
+use rusible_meta::{CommandDetails, CommandTaskData, TaskDetails, TaskResult, TaskStatus};
+use std::process::Stdio;
+use tokio::{fs, io::AsyncWriteExt, process::Command};
 
-pub(crate) async fn execute(task: &CommandTask) -> Result<TaskResult, Error> {
-    let argv = resolve_argv(task)?;
+pub(crate) async fn execute(task: &CommandTaskData) -> Result<TaskResult, Error> {
+    let argv = task.argv.clone();
 
-    if let Some(path) = task.creates.as_deref() {
-        if fs::try_exists(path).await? {
+    if let Some(path) = task.creates.as_deref()
+        && fs::try_exists(path).await? {
             return Ok(task_result(
                 TaskStatus::Skipped,
                 format!(
@@ -19,7 +15,7 @@ pub(crate) async fn execute(task: &CommandTask) -> Result<TaskResult, Error> {
                     path.display()
                 ),
                 CommandDetails {
-                    cmd: argv,
+                    cmd: argv.clone(),
                     chdir: task.chdir.clone(),
                     rc: None,
                     stdout: String::new(),
@@ -27,10 +23,9 @@ pub(crate) async fn execute(task: &CommandTask) -> Result<TaskResult, Error> {
                 },
             ));
         }
-    }
 
-    if let Some(path) = task.removes.as_deref() {
-        if !fs::try_exists(path).await? {
+    if let Some(path) = task.removes.as_deref()
+        && !fs::try_exists(path).await? {
             return Ok(task_result(
                 TaskStatus::Skipped,
                 format!(
@@ -38,7 +33,7 @@ pub(crate) async fn execute(task: &CommandTask) -> Result<TaskResult, Error> {
                     path.display()
                 ),
                 CommandDetails {
-                    cmd: argv,
+                    cmd: argv.clone(),
                     chdir: task.chdir.clone(),
                     rc: None,
                     stdout: String::new(),
@@ -46,10 +41,12 @@ pub(crate) async fn execute(task: &CommandTask) -> Result<TaskResult, Error> {
                 },
             ));
         }
-    }
 
     let mut command = Command::new(&argv[0]);
-    command.args(&argv[1..]).stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .args(&argv[1..])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     if task.stdin.is_some() {
         command.stdin(Stdio::piped());
@@ -66,7 +63,7 @@ pub(crate) async fn execute(task: &CommandTask) -> Result<TaskResult, Error> {
                 TaskStatus::Failed,
                 format!("failed to spawn command: {error}"),
                 CommandDetails {
-                    cmd: argv,
+                    cmd: argv.clone(),
                     chdir: task.chdir.clone(),
                     rc: None,
                     stdout: String::new(),
@@ -76,11 +73,10 @@ pub(crate) async fn execute(task: &CommandTask) -> Result<TaskResult, Error> {
         }
     };
 
-    if let Some(stdin) = &task.stdin {
-        if let Some(mut child_stdin) = child.stdin.take() {
+    if let Some(stdin) = &task.stdin
+        && let Some(mut child_stdin) = child.stdin.take() {
             child_stdin.write_all(stdin.as_bytes()).await?;
         }
-    }
 
     let output = child.wait_with_output().await?;
     let rc = output.status.code();
@@ -109,46 +105,9 @@ pub(crate) async fn execute(task: &CommandTask) -> Result<TaskResult, Error> {
     }
 }
 
-fn resolve_argv(task: &CommandTask) -> Result<Vec<String>, Error> {
-    match (task.cmd.as_deref(), task.argv.as_ref()) {
-        (Some(cmd), None) => {
-            let argv = shlex::split(cmd).ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!("invalid command string: {cmd}"),
-                )
-            })?;
-
-            if argv.is_empty() {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "command string must not be empty",
-                )
-                .into());
-            }
-
-            Ok(argv)
-        }
-        (None, Some(argv)) if !argv.is_empty() => Ok(argv.clone()),
-        (Some(_), Some(_)) => Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "command task accepts either cmd or argv, not both",
-        )
-        .into()),
-        (None, Some(_)) => Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "command argv must not be empty",
-        )
-        .into()),
-        (None, None) => Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "command task requires either cmd or argv",
-        )
-        .into()),
-    }
-}
-
-fn task_result(status: TaskStatus, message: impl Into<String>, details: CommandDetails) -> TaskResult {
+fn task_result(
+    status: TaskStatus, message: impl Into<String>, details: CommandDetails,
+) -> TaskResult {
     TaskResult {
         status,
         message: Some(message.into()),
@@ -158,33 +117,22 @@ fn task_result(status: TaskStatus, message: impl Into<String>, details: CommandD
 
 #[cfg(test)]
 mod tests {
-    use super::{execute, resolve_argv};
-    use rusible_meta::{CommandDetails, CommandTask, TaskDetails, TaskStatus};
-    use std::{env, fs, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
-
-    #[test]
-    fn resolve_command_argv_from_cmd_string() {
-        let argv = resolve_argv(&CommandTask {
-            cmd: Some("echo 'hello world'".to_string()),
-            argv: None,
-            chdir: None,
-            creates: None,
-            removes: None,
-            stdin: None,
-        })
-        .unwrap();
-
-        assert_eq!(argv, vec!["echo".to_string(), "hello world".to_string()]);
-    }
+    use super::execute;
+    use rusible_meta::{CommandDetails, CommandTaskData, TaskDetails, TaskStatus};
+    use std::{
+        env, fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[tokio::test(flavor = "current_thread")]
     async fn execute_command_task_skips_when_creates_exists() {
         let path = unique_temp_path("creates");
         fs::write(&path, "exists").unwrap();
 
-        let result = execute(&CommandTask {
-            cmd: Some("false".to_string()),
-            argv: None,
+        let result = execute(&CommandTaskData {
+            name: None,
+            argv: vec!["false".to_string()],
             chdir: None,
             creates: Some(path.clone()),
             removes: None,
@@ -200,9 +148,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn execute_command_task_marks_success_as_changed() {
-        let result = execute(&CommandTask {
-            cmd: None,
-            argv: Some(vec!["true".to_string()]),
+        let result = execute(&CommandTaskData {
+            name: None,
+            argv: vec!["true".to_string()],
             chdir: None,
             creates: None,
             removes: None,
@@ -220,9 +168,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn execute_command_task_marks_non_zero_exit_as_failed() {
-        let result = execute(&CommandTask {
-            cmd: None,
-            argv: Some(vec!["false".to_string()]),
+        let result = execute(&CommandTaskData {
+            name: None,
+            argv: vec!["false".to_string()],
             chdir: None,
             creates: None,
             removes: None,
@@ -245,5 +193,4 @@ mod tests {
             .as_nanos();
         env::temp_dir().join(format!("rusible-exec-{prefix}-{stamp}"))
     }
-
 }

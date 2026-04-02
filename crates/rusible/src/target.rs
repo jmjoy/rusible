@@ -2,12 +2,11 @@ use crate::{
     VarError, VarLookupError,
     exec::{
         ensure_local_exec, execute_remote_task, initialize_remote_exec, run_exec_process,
-        run_named_remote_with_json, run_remote_with_json, upload_remote_bytes,
-        validate_local_exec,
+        run_named_remote_with_json, run_remote_with_json, upload_remote_bytes, validate_local_exec,
         validate_remote_exec,
     },
     inventory::Inventory,
-    meta::{Task, TaskDetails, TaskRequest, TaskResult, TaskSpec, TaskStatus},
+    meta::{TaskData, TaskDataSpec, TaskDetails, TaskRequest, TaskResult, TaskSpec, TaskStatus},
     report::{
         BatchRunError, BatchRunReport, LocalRunError, LocalRunReport, RemoteRunError,
         RemoteRunReport, RuntimeError, classify_report,
@@ -153,7 +152,9 @@ impl Remote {
     }
 
     pub(crate) fn build_context(&self, defaults: Option<&Table>, host_name: Option<&str>) -> Table {
-        build_remote_context(defaults, &self.vars, host_name, &self.host, self.port, &self.user)
+        build_remote_context(
+            defaults, &self.vars, host_name, &self.host, self.port, &self.user,
+        )
     }
 
     /// Returns a string variable by dotted path.
@@ -185,8 +186,14 @@ impl Remote {
         options: UploadOptions,
     ) -> Result<UploadReport, RuntimeError> {
         let context = self.build_context(None, None);
-        let local_path = local_path.into().resolve(&context).map_err(RuntimeError::from)?;
-        let remote_path = remote_path.into().resolve(&context).map_err(RuntimeError::from)?;
+        let local_path = local_path
+            .into()
+            .resolve(&context)
+            .map_err(RuntimeError::from)?;
+        let remote_path = remote_path
+            .into()
+            .resolve(&context)
+            .map_err(RuntimeError::from)?;
         let upload_span = info_span!(
             "UPLOAD",
             host = %self.host,
@@ -204,7 +211,10 @@ impl Remote {
         &self, remote_path: impl Into<TemplatedPath>, bytes: &[u8], options: UploadOptions,
     ) -> Result<UploadReport, RuntimeError> {
         let context = self.build_context(None, None);
-        let remote_path = remote_path.into().resolve(&context).map_err(RuntimeError::from)?;
+        let remote_path = remote_path
+            .into()
+            .resolve(&context)
+            .map_err(RuntimeError::from)?;
         let upload_span = info_span!(
             "UPLOAD",
             host = %self.host,
@@ -243,23 +253,23 @@ impl Runnable for Local {
         &mut self, task: T,
     ) -> Result<Self::Output<T::Details>, Self::RunError<T::Details>>
     where
-        T: TaskSpec + Send,
+        T: TaskSpec + Clone + Send,
     {
-        let task = task.into();
-        let task_name = task.display_name().to_string();
-        let task_kind = task.kind();
-        let task_span = info_span!("TASK", name = %task_name, kind = task_kind, target = "localhost");
+        let request = prepare_local_request(self, task)?;
+        let task_name = request.task.display_name().to_string();
+        let task_kind = request.task.kind();
+        let task_span =
+            info_span!("TASK", name = %task_name, kind = task_kind, target = "localhost");
         let _task_guard = task_span.enter();
         let host_span = info_span!(parent: &task_span, "HOST", host = "localhost");
         let _host_guard = host_span.enter();
-        let request = prepare_local_request(self, task.clone());
         let exec_path = self
             .exec_path
             .clone()
             .ok_or_else(|| RuntimeError::NotInitialized {
                 backtrace: Backtrace::capture(),
             })?;
-        debug!(task = ?task, "running task locally");
+        debug!(task = ?request.task, "running task locally");
         let result = run_exec_process(&exec_path, &request).await?;
         emit_task_result_events(&result);
 
@@ -287,14 +297,14 @@ impl Runnable for Remote {
         &mut self, task: T,
     ) -> Result<Self::Output<T::Details>, Self::RunError<T::Details>>
     where
-        T: TaskSpec + Send,
+        T: TaskSpec + Clone + Send,
     {
-        let task = task.into();
-        let task_name = task.display_name().to_string();
-        let task_kind = task.kind();
-        let task_span = info_span!("TASK", name = %task_name, kind = task_kind, target = %self.host);
+        let request = prepare_remote_request(task, self, None, None)?;
+        let task_name = request.task.display_name().to_string();
+        let task_kind = request.task.kind();
+        let task_span =
+            info_span!("TASK", name = %task_name, kind = task_kind, target = %self.host);
         let _task_guard = task_span.enter();
-        let request = prepare_remote_request(task.clone(), self, None, None);
         let exec_path =
             self.remote_exec_path
                 .clone()
@@ -303,7 +313,7 @@ impl Runnable for Remote {
                 })?;
         let host_span = info_span!(parent: &task_span, "HOST", host = %self.host, port = self.port);
         let _host_guard = host_span.enter();
-        debug!(host = %self.host, port = self.port, task = ?task, "running task on remote host");
+        debug!(host = %self.host, port = self.port, task = ?request.task, "running task on remote host");
         let task_json = serde_json::to_string(&request).map_err(RuntimeError::from)?;
         let result = match execute_remote_task(self, &exec_path, &task_json).await {
             Ok(result) => result,
@@ -353,35 +363,40 @@ where
         &mut self, task: T,
     ) -> Result<Self::Output<T::Details>, Self::RunError<T::Details>>
     where
-        T: TaskSpec + Send,
+        T: TaskSpec + Clone + Send,
     {
-        let task = task.into();
-        let task_name = task.display_name().to_string();
-        let task_kind = task.kind();
         let remotes = self.clone().into_iter().collect::<Vec<_>>();
+        let task_kind = T::expected_task_kind();
         let task_span = info_span!(
             "TASK",
-            name = %task_name,
+            name = task_kind,
             kind = task_kind,
             remote_count = remotes.len()
         );
         let _task_guard = task_span.enter();
-        debug!(remote_count = remotes.len(), task = ?task, "running batch task");
+        debug!(
+            remote_count = remotes.len(),
+            kind = task_kind,
+            "running batch task"
+        );
         let mut tasks = JoinSet::new();
 
         for (index, remote) in remotes.iter().cloned().enumerate() {
-            let request = prepare_remote_request(task.clone(), &remote, None, None);
+            let request = prepare_remote_request(task.clone(), &remote, None, None)?;
             let task_json = serde_json::to_string(&request).map_err(RuntimeError::from)?;
             let host_name = remote.host.clone();
             let host_port = remote.port;
-            let host_span = info_span!(parent: &task_span, "HOST", host = %host_name, port = host_port);
+            let host_span =
+                info_span!(parent: &task_span, "HOST", host = %host_name, port = host_port);
             tasks.spawn(
                 async move {
                     let report = run_remote_with_json(remote, task_json).await;
 
                     match &report {
                         Ok(report) => emit_task_result_events(&report.result),
-                        Err(error) => warn!(error = %error, "host task failed before report classification"),
+                        Err(error) => {
+                            warn!(error = %error, "host task failed before report classification")
+                        }
                     }
 
                     (index, report)
@@ -427,20 +442,22 @@ impl Runnable for Inventory {
         &mut self, task: T,
     ) -> Result<Self::Output<T::Details>, Self::RunError<T::Details>>
     where
-        T: TaskSpec + Send,
+        T: TaskSpec + Clone + Send,
     {
-        let task = task.into();
-        let task_name = task.display_name().to_string();
-        let task_kind = task.kind();
         let hosts = self.hosts().to_vec();
+        let task_kind = T::expected_task_kind();
         let task_span = info_span!(
             "TASK",
-            name = %task_name,
+            name = task_kind,
             kind = task_kind,
             host_count = hosts.len()
         );
         let _task_guard = task_span.enter();
-        debug!(host_count = hosts.len(), task = ?task, "running inventory task");
+        debug!(
+            host_count = hosts.len(),
+            kind = task_kind,
+            "running inventory task"
+        );
 
         let mut join_set = JoinSet::new();
         for (index, host) in hosts.iter().cloned().enumerate() {
@@ -449,7 +466,7 @@ impl Runnable for Inventory {
                 host.remote(),
                 Some(self.vars()),
                 Some(host.name()),
-            );
+            )?;
             let task_json = serde_json::to_string(&request).map_err(RuntimeError::from)?;
             let name = host.name().to_string();
             let remote = host.remote().clone();
@@ -461,7 +478,9 @@ impl Runnable for Inventory {
 
                     match &report {
                         Ok(report) => emit_task_result_events(&report.result),
-                        Err(error) => warn!(error = %error, "host task failed before report classification"),
+                        Err(error) => {
+                            warn!(error = %error, "host task failed before report classification")
+                        }
                     }
 
                     (index, report)
@@ -508,8 +527,12 @@ fn emit_failure_detail_events(details: Option<&TaskDetails>) {
     };
 
     match details {
-        TaskDetails::Command(details) => emit_command_output_events(details.rc, &details.stdout, &details.stderr),
-        TaskDetails::Shell(details) => emit_command_output_events(details.rc, &details.stdout, &details.stderr),
+        TaskDetails::Command(details) => {
+            emit_command_output_events(details.rc, &details.stdout, &details.stderr)
+        }
+        TaskDetails::Shell(details) => {
+            emit_command_output_events(details.rc, &details.stdout, &details.stderr)
+        }
         _ => {}
     }
 }
@@ -528,14 +551,33 @@ fn emit_command_output_events(rc: Option<i32>, stdout: &str, stderr: &str) {
     }
 }
 
-fn prepare_local_request(local: &Local, task: Task) -> TaskRequest {
-    TaskRequest::new(task, build_local_context(local.vars()))
+fn prepare_local_request<T>(local: &Local, task: T) -> Result<TaskRequest, RuntimeError>
+where
+    T: TaskSpec,
+{
+    let context = build_local_context(local.vars());
+    let task = resolve_task(task, &context)?;
+    Ok(TaskRequest::new(task))
 }
 
-fn prepare_remote_request(
-    task: Task, remote: &Remote, inventory_vars: Option<&Table>, host_name: Option<&str>,
-) -> TaskRequest {
-    TaskRequest::new(task, remote.build_context(inventory_vars, host_name))
+fn prepare_remote_request<T>(
+    task: T, remote: &Remote, inventory_vars: Option<&Table>, host_name: Option<&str>,
+) -> Result<TaskRequest, RuntimeError>
+where
+    T: TaskSpec,
+{
+    let context = remote.build_context(inventory_vars, host_name);
+    let task = resolve_task(task, &context)?;
+    Ok(TaskRequest::new(task))
+}
+
+fn resolve_task<T>(task: T, context: &Table) -> Result<TaskData, RuntimeError>
+where
+    T: TaskSpec,
+{
+    let task = task.resolve(context).map_err(RuntimeError::from)?;
+    task.validate().map_err(RuntimeError::from)?;
+    Ok(task.into())
 }
 
 #[cfg(test)]
@@ -564,6 +606,9 @@ mod tests {
             .resolve(&context)
             .unwrap_err();
 
-        assert!(matches!(error, rusible_template::TemplateError::Render { .. }));
+        assert!(matches!(
+            error,
+            rusible_template::TemplateError::Render { .. }
+        ));
     }
 }

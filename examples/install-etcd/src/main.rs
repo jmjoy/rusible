@@ -1,16 +1,14 @@
 use anyhow::bail;
 use rusible::{
-    init_forest_logging,
+    Field, TemplatedPath, UploadOptions, VarLookupError, init_forest_logging,
     inventory::{Host, Inventory},
     meta::{
         CommandTask, CopyTask, DownloadTask, FileState, FileTask, ShellTask, StatTask,
-        SystemdState, SystemdTask, TemplateTask, UnarchiveTask, UserTask, WaitForTask,
+        SystemdState, SystemdTask, UnarchiveTask, UserTask, WaitForTask,
     },
     runtime::Runnable as _,
-    shell_quote,
-    shell_quote_path,
+    shell_quote, shell_quote_path,
     target::Local,
-    TemplatedPath, UploadOptions, VarLookupError,
 };
 use std::{
     env::temp_dir,
@@ -44,14 +42,9 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let etcd_version = inventory.get_var("etcd.version")?;
-    let local_cert_dir = resolve_local_path(
-        &manifest_dir,
-        &inventory.get_var("etcd.local_cert_dir")?,
-    );
-    inventory.set_var(
-        "etcd.local_cert_dir",
-        local_cert_dir.display().to_string(),
-    )?;
+    let local_cert_dir =
+        resolve_local_path(&manifest_dir, &inventory.get_var("etcd.local_cert_dir")?);
+    inventory.set_var("etcd.local_cert_dir", local_cert_dir.display().to_string())?;
     let remote_ssl_dir = inventory.get_var("etcd.remote_ssl_dir")?;
     let remote_data_dir = inventory.get_var("etcd.remote_data_dir")?;
     let remote_service_path = inventory.get_var("etcd.remote_service_path")?;
@@ -98,42 +91,41 @@ async fn main() -> anyhow::Result<()> {
     distribute_certificates(&inventory).await?;
 
     inventory
-        .run(TemplateTask {
-            name: Some("Render etcd systemd unit".to_string()),
-            dest: PathBuf::from(&remote_service_path),
-            content: include_str!("etcd.service.j2").to_string(),
-            owner: None,
-            group: None,
-            mode: Some("0644".to_string()),
+        .run(FileTask {
+            name: "Render etcd systemd unit".into(),
+            path: PathBuf::from(&remote_service_path).into(),
+            state: FileState::File.into(),
+            content: Field::tpl(include_str!("etcd.service.j2")),
+            mode: "0644".into(),
+            ..Default::default()
         })
         .await?;
 
     inventory
         .run(SystemdTask {
-            name: Some("Restart etcd service".to_string()),
-            unit: "etcd.service".to_string(),
-            daemon_reload: true,
-            enabled: Some(true),
-            state: Some(SystemdState::Restarted),
+            name: "Restart etcd service".into(),
+            unit: "etcd.service".into(),
+            daemon_reload: true.into(),
+            enabled: true.into(),
+            state: SystemdState::Restarted.into(),
         })
         .await?;
 
     inventory
         .run(WaitForTask {
-            name: Some("Wait for etcd client port".to_string()),
-            host: Some("127.0.0.1".to_string()),
-            port: 2379,
-            delay_secs: 5,
-            timeout_secs: 30,
-            connect_timeout_secs: 2,
+            name: "Wait for etcd client port".into(),
+            host: "127.0.0.1".into(),
+            port: 2379.into(),
+            delay_secs: 5.into(),
+            timeout_secs: 30.into(),
+            connect_timeout_secs: 2.into(),
         })
         .await?;
 
     inventory
         .run(CommandTask {
-            name: Some("Check etcd endpoint health".to_string()),
-            cmd: None,
-            argv: Some(vec![
+            name: "Check etcd endpoint health".into(),
+            argv: vec![
                 "/usr/bin/env".to_string(),
                 "ETCDCTL_API=3".to_string(),
                 "/usr/local/bin/etcdctl".to_string(),
@@ -143,11 +135,11 @@ async fn main() -> anyhow::Result<()> {
                 format!("--key={remote_ssl_dir}/server.key"),
                 "endpoint".to_string(),
                 "health".to_string(),
-            ]),
-            chdir: None,
-            creates: None,
-            removes: None,
-            stdin: None,
+            ]
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+            ..Default::default()
         })
         .await?;
 
@@ -157,19 +149,15 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn prepare_local_certificates(
-    local: &mut Local,
-    local_cert_dir: &Path,
-    host_specs: &[EtcdHostSpec],
+    local: &mut Local, local_cert_dir: &Path, host_specs: &[EtcdHostSpec],
 ) -> anyhow::Result<()> {
     local
         .run(FileTask {
-            name: Some("Ensure local certificate directory".to_string()),
-            path: local_cert_dir.to_path_buf(),
-            state: FileState::Directory,
-            owner: None,
-            group: None,
-            mode: Some("0755".to_string()),
-            content: None,
+            name: "Ensure local certificate directory".into(),
+            path: local_cert_dir.to_path_buf().into(),
+            state: FileState::Directory.into(),
+            mode: "0755".into(),
+            ..Default::default()
         })
         .await?;
 
@@ -177,27 +165,30 @@ async fn prepare_local_certificates(
     let ca_key_path = local_cert_dir.join("ca.key");
     let ca_stat = local
         .run(StatTask {
-            name: Some("Inspect local CA certificate".to_string()),
-            path: ca_cert_path.clone(),
+            name: "Inspect local CA certificate".into(),
+            path: ca_cert_path.clone().into(),
         })
         .await?;
 
-    if !ca_stat.result.details.as_ref().is_some_and(|details| details.exists) {
+    if !ca_stat
+        .result
+        .details
+        .as_ref()
+        .is_some_and(|details| details.exists)
+    {
         local
             .run(ShellTask {
-                name: Some("Generate local CA certificate".to_string()),
+                name: "Generate local CA certificate".into(),
                 cmd: format!(
-                    "set -eu; \
-                     openssl genrsa -out {quoted_ca_key_path} 2048; \
-                     openssl req -x509 -new -nodes -key {quoted_ca_key_path} \
-                     -subj '/CN=etcd-ca' -days 3650 -out {quoted_ca_cert_path}",
+                    "set -eu; openssl genrsa -out {quoted_ca_key_path} 2048; openssl req -x509 \
+                     -new -nodes -key {quoted_ca_key_path} -subj '/CN=etcd-ca' -days 3650 -out \
+                     {quoted_ca_cert_path}",
                     quoted_ca_key_path = shell_quote_path(&ca_key_path)?,
                     quoted_ca_cert_path = shell_quote_path(&ca_cert_path)?,
-                ),
-                chdir: None,
-                creates: Some(ca_cert_path.clone()),
-                removes: None,
-                stdin: None,
+                )
+                .into(),
+                creates: ca_cert_path.clone().into(),
+                ..Default::default()
             })
             .await?;
     }
@@ -211,31 +202,29 @@ async fn prepare_local_certificates(
 
         local
             .run(FileTask {
-                name: Some(format!("Render CSR config for {}", host.inventory_name)),
-                path: csr_config_path.clone(),
-                state: FileState::File,
-                owner: None,
-                group: None,
-                mode: Some("0644".to_string()),
-                content: Some(render_csr_config(&build_cert_sans(host))),
+                name: format!("Render CSR config for {}", host.inventory_name).into(),
+                path: csr_config_path.clone().into(),
+                state: FileState::File.into(),
+                mode: "0644".into(),
+                content: render_csr_config(&build_cert_sans(host)).into(),
+                ..Default::default()
             })
             .await?;
 
         local
             .run(FileTask {
-                name: Some(format!("Render SAN extension for {}", host.inventory_name)),
-                path: san_ext_path.clone(),
-                state: FileState::File,
-                owner: None,
-                group: None,
-                mode: Some("0644".to_string()),
-                content: Some(format!("subjectAltName={}\n", build_cert_sans(host))),
+                name: format!("Render SAN extension for {}", host.inventory_name).into(),
+                path: san_ext_path.clone().into(),
+                state: FileState::File.into(),
+                mode: "0644".into(),
+                content: format!("subjectAltName={}\n", build_cert_sans(host)).into(),
+                ..Default::default()
             })
             .await?;
 
         local
             .run(ShellTask {
-                name: Some(format!("Generate certificate for {}", host.inventory_name)),
+                name: format!("Generate certificate for {}", host.inventory_name).into(),
                 cmd: format!(
                     concat!(
                         "set -eu; ",
@@ -255,11 +244,10 @@ async fn prepare_local_certificates(
                     quoted_ca_key_path = shell_quote_path(&ca_key_path)?,
                     quoted_crt_path = shell_quote_path(&crt_path)?,
                     quoted_san_ext_path = shell_quote_path(&san_ext_path)?,
-                ),
-                chdir: None,
-                creates: Some(crt_path),
-                removes: None,
-                stdin: None,
+                )
+                .into(),
+                creates: crt_path.into(),
+                ..Default::default()
             })
             .await?;
     }
@@ -268,13 +256,8 @@ async fn prepare_local_certificates(
 }
 
 async fn install_etcd_runtime(
-    local: &mut Local,
-    inventory: &mut Inventory,
-    local_download_dir: &Path,
-    version: &str,
-    remote_ssl_dir: &str,
-    remote_data_dir: &str,
-    remote_service_path: &str,
+    local: &mut Local, inventory: &mut Inventory, local_download_dir: &Path, version: &str,
+    remote_ssl_dir: &str, remote_data_dir: &str, remote_service_path: &str,
 ) -> anyhow::Result<()> {
     let local_archive_path = local_download_dir.join(format!("etcd-{version}-linux-amd64.tar.gz"));
     let archive_path = PathBuf::from(format!("/tmp/etcd-{version}-linux-amd64.tar.gz"));
@@ -282,52 +265,50 @@ async fn install_etcd_runtime(
 
     local
         .run(FileTask {
-            name: Some("Ensure local etcd download directory".to_string()),
-            path: local_download_dir.to_path_buf(),
-            state: FileState::Directory,
-            owner: None,
-            group: None,
-            mode: Some("0755".to_string()),
-            content: None,
+            name: "Ensure local etcd download directory".into(),
+            path: local_download_dir.to_path_buf().into(),
+            state: FileState::Directory.into(),
+            mode: "0755".into(),
+            ..Default::default()
         })
         .await?;
 
     inventory
         .run(UserTask {
-            name: Some("Ensure etcd service user".to_string()),
-            username: "etcd".to_string(),
-            system: true,
-            create_home: false,
-            shell: Some(PathBuf::from("/usr/sbin/nologin")),
-            home: None,
+            name: "Ensure etcd service user".into(),
+            username: "etcd".into(),
+            system: true.into(),
+            create_home: false.into(),
+            shell: PathBuf::from("/usr/sbin/nologin").into(),
+            ..Default::default()
         })
         .await?;
 
     for path in [remote_ssl_dir, remote_data_dir] {
         inventory
             .run(FileTask {
-                name: Some(format!("Ensure remote directory {path}")),
-                path: PathBuf::from(path),
-                state: FileState::Directory,
-                owner: Some("etcd".to_string()),
-                group: Some("etcd".to_string()),
-                mode: Some("0755".to_string()),
-                content: None,
+                name: format!("Ensure remote directory {path}").into(),
+                path: PathBuf::from(path).into(),
+                state: FileState::Directory.into(),
+                owner: "etcd".into(),
+                group: "etcd".into(),
+                mode: "0755".into(),
+                ..Default::default()
             })
             .await?;
     }
 
     local
         .run(DownloadTask {
-            name: Some("Download etcd release archive".to_string()),
+            name: "Download etcd release archive".into(),
             url: format!(
                 "https://github.com/etcd-io/etcd/releases/download/{version}/etcd-{version}-linux-amd64.tar.gz"
-            ),
+            )
+            .into(),
             dest: local_archive_path.clone().into(),
-            force: false,
-            owner: None,
-            group: None,
-            mode: Some("0644".to_string()),
+            force: false.into(),
+            mode: "0644".into(),
+            ..Default::default()
         })
         .await?;
 
@@ -337,35 +318,32 @@ async fn install_etcd_runtime(
 
     inventory
         .run(UnarchiveTask {
-            name: Some("Extract etcd release archive".to_string()),
-            src: archive_path,
-            dest: PathBuf::from("/tmp"),
-            creates: Some(extract_dir.join("etcd")),
+            name: "Extract etcd release archive".into(),
+            src: archive_path.into(),
+            dest: PathBuf::from("/tmp").into(),
+            creates: extract_dir.join("etcd").into(),
         })
         .await?;
 
     for binary in ["etcd", "etcdctl"] {
         inventory
             .run(CopyTask {
-                name: Some(format!("Install {binary} binary")),
+                name: format!("Install {binary} binary").into(),
                 src: extract_dir.join(binary).into(),
                 dest: PathBuf::from(format!("/usr/local/bin/{binary}")).into(),
-                owner: None,
-                group: None,
-                mode: Some("0755".to_string()),
+                mode: "0755".into(),
+                ..Default::default()
             })
             .await?;
     }
 
     inventory
         .run(FileTask {
-            name: Some("Ensure etcd service file exists".to_string()),
-            path: PathBuf::from(remote_service_path),
-            state: FileState::Touch,
-            owner: None,
-            group: None,
-            mode: Some("0644".to_string()),
-            content: None,
+            name: "Ensure etcd service file exists".into(),
+            path: PathBuf::from(remote_service_path).into(),
+            state: FileState::Touch.into(),
+            mode: "0644".into(),
+            ..Default::default()
         })
         .await?;
 
@@ -434,7 +412,10 @@ fn host_spec_from_inventory_host(host: &Host) -> anyhow::Result<EtcdHostSpec> {
 }
 
 fn build_cert_sans(host: &EtcdHostSpec) -> String {
-    let mut entries = vec![format!("DNS:{}", host.member_name), "IP:127.0.0.1".to_string()];
+    let mut entries = vec![
+        format!("DNS:{}", host.member_name),
+        "IP:127.0.0.1".to_string(),
+    ];
 
     push_subject_alt_name(&mut entries, &host.peer_host);
     if host.client_host != host.peer_host {

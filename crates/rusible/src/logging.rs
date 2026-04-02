@@ -7,18 +7,15 @@ use tracing_forest::{
     tree::{Event, Span, Tree},
 };
 use tracing_subscriber::{
-    EnvFilter, Registry,
-    layer::SubscriberExt as _,
-    util::SubscriberInitExt as _,
+    EnvFilter, Registry, layer::SubscriberExt as _, util::SubscriberInitExt as _,
 };
 
 pub fn init_forest_logging(default_filter: &str) {
     Registry::default()
-        .with(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new(default_filter)),
-        )
-        .with(ForestLayer::from(PrettyPrinter::new().formatter(CompactFormatter)))
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter)))
+        .with(ForestLayer::from(
+            PrettyPrinter::new().formatter(CompactFormatter),
+        ))
         .init();
 }
 
@@ -36,30 +33,31 @@ impl Formatter for CompactFormatter {
 }
 
 fn format_tree(
-    tree: &Tree,
-    duration_root: Option<f64>,
-    indent: &mut Vec<Indent>,
-    writer: &mut String,
+    tree: &Tree, duration_root: Option<f64>, indent: &mut Vec<Indent>, writer: &mut String,
 ) -> fmt::Result {
     match tree {
         Tree::Event(event) => {
-            format_shared(event.level(), event.timestamp().format("%H:%M:%S%.3f"), writer)?;
+            format_shared(
+                event.level(),
+                event.timestamp().format("%H:%M:%S%.3f"),
+                writer,
+            )?;
             format_indent(indent, writer)?;
             format_event(event, writer)
         }
         Tree::Span(span) => {
-            format_shared(span.level(), span.timestamp().format("%H:%M:%S%.3f"), writer)?;
+            format_shared(
+                span.level(),
+                span.timestamp().format("%H:%M:%S%.3f"),
+                writer,
+            )?;
             format_indent(indent, writer)?;
             format_span(span, duration_root, indent, writer)
         }
     }
 }
 
-fn format_shared(
-    level: Level,
-    timestamp: impl fmt::Display,
-    writer: &mut String,
-) -> fmt::Result {
+fn format_shared(level: Level, timestamp: impl fmt::Display, writer: &mut String) -> fmt::Result {
     write!(writer, "{timestamp} {:<17} ", paint_level(level))
 }
 
@@ -83,7 +81,7 @@ fn format_event(event: &Event, writer: &mut String) -> fmt::Result {
             writer,
             " | {}: {}",
             paint_field_key(field.key()),
-            paint_field_value(field.key(), &field.value().to_string())
+            paint_field_value(field.key(), field.value())
         )?;
     }
 
@@ -91,10 +89,7 @@ fn format_event(event: &Event, writer: &mut String) -> fmt::Result {
 }
 
 fn format_span(
-    span: &Span,
-    duration_root: Option<f64>,
-    indent: &mut Vec<Indent>,
-    writer: &mut String,
+    span: &Span, duration_root: Option<f64>, indent: &mut Vec<Indent>, writer: &mut String,
 ) -> fmt::Result {
     let total_duration = span.total_duration().as_nanos() as f64;
     let inner_duration = span.inner_duration().as_nanos() as f64;
@@ -122,7 +117,7 @@ fn format_span(
             "{} {}: {}",
             if index == 0 { "" } else { " |" },
             paint_field_key(field.key()),
-            paint_field_value(field.key(), &field.value().to_string())
+            paint_field_value(field.key(), field.value())
         )?;
     }
     writeln!(writer)?;

@@ -1,8 +1,8 @@
 use crate::Error;
-use rusible_meta::{TaskDetails, TaskResult, TaskStatus, UserDetails, UserTask};
+use rusible_meta::{TaskDetails, TaskResult, TaskStatus, UserDetails, UserTaskData};
 use tokio::process::Command;
 
-pub(crate) async fn execute(task: &UserTask) -> Result<TaskResult, Error> {
+pub(crate) async fn execute(task: &UserTaskData) -> Result<TaskResult, Error> {
     if user_exists(&task.username).await? {
         return Ok(TaskResult {
             status: TaskStatus::Ok,

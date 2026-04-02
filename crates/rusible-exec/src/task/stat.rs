@@ -1,9 +1,9 @@
 use crate::Error;
-use rusible_meta::{StatDetails, StatTask, TaskDetails, TaskResult, TaskStatus};
+use rusible_meta::{StatDetails, StatTaskData, TaskDetails, TaskResult, TaskStatus};
 use std::os::unix::fs::PermissionsExt;
 use tokio::fs;
 
-pub(crate) async fn execute(task: &StatTask) -> Result<TaskResult, Error> {
+pub(crate) async fn execute(task: &StatTaskData) -> Result<TaskResult, Error> {
     let details = match fs::symlink_metadata(&task.path).await {
         Ok(metadata) => StatDetails {
             path: task.path.clone(),

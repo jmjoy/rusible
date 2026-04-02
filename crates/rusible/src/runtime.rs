@@ -44,5 +44,5 @@ pub trait Runnable {
     ) -> impl Future<Output = Result<Self::Output<T::Details>, Self::RunError<T::Details>>> + Send
     where
         Self: Send,
-        T: TaskSpec + Send;
+        T: TaskSpec + Clone + Send;
 }

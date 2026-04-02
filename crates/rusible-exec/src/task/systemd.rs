@@ -1,10 +1,10 @@
 use crate::Error;
 use rusible_meta::{
-    SystemdDetails, SystemdState, SystemdTask, TaskDetails, TaskResult, TaskStatus,
+    SystemdDetails, SystemdState, SystemdTaskData, TaskDetails, TaskResult, TaskStatus,
 };
 use tokio::process::Command;
 
-pub(crate) async fn execute(task: &SystemdTask) -> Result<TaskResult, Error> {
+pub(crate) async fn execute(task: &SystemdTaskData) -> Result<TaskResult, Error> {
     let mut changed = false;
 
     if task.daemon_reload {
@@ -53,7 +53,11 @@ pub(crate) async fn execute(task: &SystemdTask) -> Result<TaskResult, Error> {
     };
 
     Ok(TaskResult {
-        status: if changed { TaskStatus::Changed } else { TaskStatus::Ok },
+        status: if changed {
+            TaskStatus::Changed
+        } else {
+            TaskStatus::Ok
+        },
         message: Some(if changed {
             format!("systemd unit {} updated", task.unit)
         } else {

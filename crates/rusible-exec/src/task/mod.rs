@@ -5,26 +5,26 @@ mod file;
 mod shell;
 mod stat;
 mod systemd;
-mod template;
 mod unarchive;
 mod user;
 mod wait_for;
 
 use crate::Error;
-use rusible_meta::{Task, TaskRequest, TaskResult};
+use rusible_meta::{TaskData, TaskRequest, TaskResult};
 
 pub(crate) async fn execute(request: TaskRequest) -> Result<TaskResult, Error> {
+    request.task.validate()?;
+
     match request.task {
-        Task::File(task) => file::execute(&task).await,
-        Task::Template(task) => template::execute(&task, &request.context).await,
-        Task::Command(task) => command::execute(&task).await,
-        Task::Copy(task) => copy::execute(&task, &request.context).await,
-        Task::Download(task) => download::execute(&task, &request.context).await,
-        Task::Shell(task) => shell::execute(&task).await,
-        Task::Stat(task) => stat::execute(&task).await,
-        Task::User(task) => user::execute(&task).await,
-        Task::Systemd(task) => systemd::execute(&task).await,
-        Task::Unarchive(task) => unarchive::execute(&task).await,
-        Task::WaitFor(task) => wait_for::execute(&task).await,
+        TaskData::File(task) => file::execute(&task).await,
+        TaskData::Command(task) => command::execute(&task).await,
+        TaskData::Copy(task) => copy::execute(&task).await,
+        TaskData::Download(task) => download::execute(&task).await,
+        TaskData::Shell(task) => shell::execute(&task).await,
+        TaskData::Stat(task) => stat::execute(&task).await,
+        TaskData::User(task) => user::execute(&task).await,
+        TaskData::Systemd(task) => systemd::execute(&task).await,
+        TaskData::Unarchive(task) => unarchive::execute(&task).await,
+        TaskData::WaitFor(task) => wait_for::execute(&task).await,
     }
 }

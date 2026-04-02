@@ -2,7 +2,7 @@
 
 `hello-inventory` demonstrates how to load an inventory TOML file or a
 directory of inventory TOML files into `rusible::inventory::Inventory`, select
-a host subset, and execute a simple template task.
+a host subset, and execute a file task with templated content.
 
 ## What It Shows
 

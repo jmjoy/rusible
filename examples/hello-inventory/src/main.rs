@@ -1,7 +1,7 @@
 use rusible::{
-    init_forest_logging,
+    Field, init_forest_logging,
     inventory::Inventory,
-    meta::TemplateTask,
+    meta::{FileState, FileTask},
     runtime::Runnable as _,
 };
 use std::path::PathBuf;
@@ -33,10 +33,11 @@ async fn main() -> anyhow::Result<()> {
     inventory.init(RUSIBLE_EXEC_BYTES).await?;
 
     inventory
-        .run(TemplateTask {
-            name: Some("Render inventory hello template".to_string()),
-            dest: PathBuf::from("/tmp/hello-inventory.txt"),
-            content: concat!(
+        .run(FileTask {
+            name: "Render inventory hello template".into(),
+            path: PathBuf::from("/tmp/hello-inventory.txt").into(),
+            state: FileState::File.into(),
+            content: Field::tpl(concat!(
                 "hello from {{ app.name }}\n",
                 "env={{ app.env }}\n",
                 "role={{ app.role }}\n",
@@ -44,11 +45,9 @@ async fn main() -> anyhow::Result<()> {
                 "group={{ group.primary }}\n",
                 "inventory_host={{ rusible.host.name }}\n",
                 "ssh={{ rusible.host.user }}@{{ rusible.host.host }}:{{ rusible.host.port }}\n"
-            )
-            .to_string(),
-            owner: None,
-            group: None,
-            mode: Some("0644".to_string()),
+            )),
+            mode: "0644".into(),
+            ..Default::default()
         })
         .await?;
 

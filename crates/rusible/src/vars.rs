@@ -109,7 +109,9 @@ pub(crate) fn remove_table_path(table: &mut Table, path: &str) -> Result<Option<
     Ok(current.remove(*segments.last().expect("path has at least one segment")))
 }
 
-pub(crate) fn get_table_path<'a>(table: &'a Table, path: &str) -> Result<&'a Value, VarLookupError> {
+pub(crate) fn get_table_path<'a>(
+    table: &'a Table, path: &str,
+) -> Result<&'a Value, VarLookupError> {
     let segments = parse_path(path).map_err(VarLookupError::from)?;
     let mut current = table;
 
@@ -294,7 +296,10 @@ mod tests {
         let mut table = Table::new();
         set_table_path(&mut table, "app.name", "rusible").unwrap();
 
-        assert_eq!(get_table_path_string(&table, "app.name").unwrap(), "rusible");
+        assert_eq!(
+            get_table_path_string(&table, "app.name").unwrap(),
+            "rusible"
+        );
     }
 
     #[test]

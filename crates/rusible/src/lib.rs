@@ -11,9 +11,9 @@ mod shell;
 pub mod target;
 mod vars;
 
-pub use rusible_meta as meta;
-pub use rusible_template::{ResolveTemplate, TemplatedPath, TemplatedString, TemplatedUrl};
 pub use logging::init_forest_logging;
+pub use rusible_meta as meta;
+pub use rusible_template::{Field, ResolveTemplate, TemplatedPath, TemplatedString, TemplatedUrl};
 pub use shell::{QuoteError, shell_quote, shell_quote_path};
 pub use target::UploadOptions;
 /// Re-exported TOML table type for task variable maps.

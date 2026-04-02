@@ -1,5 +1,5 @@
 use crate::Error;
-use rusible_meta::{TaskDetails, TaskResult, TaskStatus, WaitForDetails, WaitForTask};
+use rusible_meta::{TaskDetails, TaskResult, TaskStatus, WaitForDetails, WaitForTaskData};
 use std::{
     net::SocketAddr,
     time::{Duration, Instant},
@@ -9,11 +9,8 @@ use tokio::{
     time::{sleep, timeout},
 };
 
-pub(crate) async fn execute(task: &WaitForTask) -> Result<TaskResult, Error> {
-    let host = task
-        .host
-        .clone()
-        .unwrap_or_else(|| "127.0.0.1".to_string());
+pub(crate) async fn execute(task: &WaitForTaskData) -> Result<TaskResult, Error> {
+    let host = task.host.clone().unwrap_or_else(|| "127.0.0.1".to_string());
 
     if task.delay_secs > 0 {
         sleep(Duration::from_secs(task.delay_secs)).await;

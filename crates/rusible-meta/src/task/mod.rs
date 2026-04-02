@@ -5,35 +5,30 @@ pub mod file;
 pub mod shell;
 pub mod stat;
 pub mod systemd;
-pub mod template;
 pub mod unarchive;
 pub mod user;
 pub mod wait_for;
 
-pub use command::{CommandDetails, CommandTask};
-pub use copy::{CopyDetails, CopyTask};
-pub use download::{DownloadDetails, DownloadTask};
-pub use file::{FileDetails, FileState, FileTask};
-pub use shell::{ShellDetails, ShellTask};
-pub use stat::{StatDetails, StatTask};
-pub use systemd::{SystemdDetails, SystemdState, SystemdTask};
-pub use template::{TemplateDetails, TemplateTask};
-pub use unarchive::{UnarchiveDetails, UnarchiveTask};
-pub use user::{UserDetails, UserTask};
-pub use wait_for::{WaitForDetails, WaitForTask};
+pub use command::{CommandDetails, CommandTask, CommandTaskData};
+pub use copy::{CopyDetails, CopyTask, CopyTaskData};
+pub use download::{DownloadDetails, DownloadTask, DownloadTaskData};
+pub use file::{FileDetails, FileState, FileTask, FileTaskData};
+pub use shell::{ShellDetails, ShellTask, ShellTaskData};
+pub use stat::{StatDetails, StatTask, StatTaskData};
+pub use systemd::{SystemdDetails, SystemdState, SystemdTask, SystemdTaskData};
+pub use unarchive::{UnarchiveDetails, UnarchiveTask, UnarchiveTaskData};
+pub use user::{UserDetails, UserTask, UserTaskData};
+pub use wait_for::{WaitForDetails, WaitForTask, WaitForTaskData};
 
+use rusible_template::{Field, ResolveValue};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use toml::Table;
 
-/// Describes a task that can be executed by `rusible-exec`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+/// Describes a user-facing task definition resolved on the controller.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Task {
-    /// Ensures a file-system path reaches the requested state.
     File(FileTask),
-    /// Writes rendered template content to a destination path.
-    Template(TemplateTask),
     /// Executes a command without invoking a shell.
     Command(CommandTask),
     /// Copies a file on the target host.
@@ -54,15 +49,41 @@ pub enum Task {
     WaitFor(WaitForTask),
 }
 
-impl From<FileTask> for Task {
-    fn from(task: FileTask) -> Self {
-        Self::File(task)
+impl Default for Task {
+    fn default() -> Self {
+        Self::File(FileTask::default())
     }
 }
 
-impl From<TemplateTask> for Task {
-    fn from(task: TemplateTask) -> Self {
-        Self::Template(task)
+/// Describes a fully-resolved task that can be executed by `rusible-exec`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TaskData {
+    /// Ensures a file-system path reaches the requested state.
+    File(FileTaskData),
+    /// Executes a command without invoking a shell.
+    Command(CommandTaskData),
+    /// Copies a file on the target host.
+    Copy(CopyTaskData),
+    /// Downloads a file from an HTTP(S) endpoint onto the target host.
+    Download(DownloadTaskData),
+    /// Executes a command through the system shell.
+    Shell(ShellTaskData),
+    /// Collects file-system metadata for a path.
+    Stat(StatTaskData),
+    /// Ensures a local user account exists.
+    User(UserTaskData),
+    /// Applies service state through systemd.
+    Systemd(SystemdTaskData),
+    /// Extracts an archive that already exists on the target host.
+    Unarchive(UnarchiveTaskData),
+    /// Waits until a TCP port becomes reachable.
+    WaitFor(WaitForTaskData),
+}
+
+impl From<FileTask> for Task {
+    fn from(task: FileTask) -> Self {
+        Self::File(task)
     }
 }
 
@@ -124,7 +145,98 @@ impl Task {
     pub fn kind(&self) -> &'static str {
         match self {
             Self::File(_) => "file",
-            Self::Template(_) => "template",
+            Self::Command(_) => "command",
+            Self::Copy(_) => "copy",
+            Self::Download(_) => "download",
+            Self::Shell(_) => "shell",
+            Self::Stat(_) => "stat",
+            Self::User(_) => "user",
+            Self::Systemd(_) => "systemd",
+            Self::Unarchive(_) => "unarchive",
+            Self::WaitFor(_) => "wait_for",
+        }
+    }
+
+    pub fn resolve(self, context: &Table) -> Result<TaskData, TaskValidationError> {
+        match self {
+            Self::File(task) => task.resolve(context).map(TaskData::File),
+            Self::Command(task) => task.resolve(context).map(TaskData::Command),
+            Self::Copy(task) => task.resolve(context).map(TaskData::Copy),
+            Self::Download(task) => task.resolve(context).map(TaskData::Download),
+            Self::Shell(task) => task.resolve(context).map(TaskData::Shell),
+            Self::Stat(task) => task.resolve(context).map(TaskData::Stat),
+            Self::User(task) => task.resolve(context).map(TaskData::User),
+            Self::Systemd(task) => task.resolve(context).map(TaskData::Systemd),
+            Self::Unarchive(task) => task.resolve(context).map(TaskData::Unarchive),
+            Self::WaitFor(task) => task.resolve(context).map(TaskData::WaitFor),
+        }
+    }
+}
+
+impl From<FileTaskData> for TaskData {
+    fn from(task: FileTaskData) -> Self {
+        Self::File(task)
+    }
+}
+
+impl From<CommandTaskData> for TaskData {
+    fn from(task: CommandTaskData) -> Self {
+        Self::Command(task)
+    }
+}
+
+impl From<CopyTaskData> for TaskData {
+    fn from(task: CopyTaskData) -> Self {
+        Self::Copy(task)
+    }
+}
+
+impl From<DownloadTaskData> for TaskData {
+    fn from(task: DownloadTaskData) -> Self {
+        Self::Download(task)
+    }
+}
+
+impl From<ShellTaskData> for TaskData {
+    fn from(task: ShellTaskData) -> Self {
+        Self::Shell(task)
+    }
+}
+
+impl From<StatTaskData> for TaskData {
+    fn from(task: StatTaskData) -> Self {
+        Self::Stat(task)
+    }
+}
+
+impl From<UserTaskData> for TaskData {
+    fn from(task: UserTaskData) -> Self {
+        Self::User(task)
+    }
+}
+
+impl From<SystemdTaskData> for TaskData {
+    fn from(task: SystemdTaskData) -> Self {
+        Self::Systemd(task)
+    }
+}
+
+impl From<UnarchiveTaskData> for TaskData {
+    fn from(task: UnarchiveTaskData) -> Self {
+        Self::Unarchive(task)
+    }
+}
+
+impl From<WaitForTaskData> for TaskData {
+    fn from(task: WaitForTaskData) -> Self {
+        Self::WaitFor(task)
+    }
+}
+
+impl TaskData {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::File(_) => "file",
             Self::Command(_) => "command",
             Self::Copy(_) => "copy",
             Self::Download(_) => "download",
@@ -140,7 +252,6 @@ impl Task {
     pub fn name(&self) -> Option<&str> {
         match self {
             Self::File(task) => task.name.as_deref(),
-            Self::Template(task) => task.name.as_deref(),
             Self::Command(task) => task.name.as_deref(),
             Self::Copy(task) => task.name.as_deref(),
             Self::Download(task) => task.name.as_deref(),
@@ -156,25 +267,67 @@ impl Task {
     pub fn display_name(&self) -> &str {
         self.name().unwrap_or_else(|| self.kind())
     }
-}
 
-/// Serialized task request sent from the controller to `rusible-exec`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TaskRequest {
-    pub task: Task,
-    #[serde(default, skip_serializing_if = "Table::is_empty")]
-    pub context: Table,
-}
-
-impl TaskRequest {
-    pub fn new(task: Task, context: Table) -> Self {
-        Self { task, context }
+    pub fn validate(&self) -> Result<(), TaskValidationError> {
+        match self {
+            Self::File(task) => task.validate(),
+            Self::Command(task) => task.validate(),
+            Self::Copy(task) => task.validate(),
+            Self::Download(task) => task.validate(),
+            Self::Shell(task) => task.validate(),
+            Self::Stat(task) => task.validate(),
+            Self::User(task) => task.validate(),
+            Self::Systemd(task) => task.validate(),
+            Self::Unarchive(task) => task.validate(),
+            Self::WaitFor(task) => task.validate(),
+        }
     }
 }
 
-/// Associates a task type with the structured details it returns.
+/// Serialized task request sent from the controller to `rusible-exec`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskRequest {
+    pub task: TaskData,
+}
+
+impl TaskRequest {
+    pub fn new(task: impl Into<TaskData>) -> Self {
+        Self { task: task.into() }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum TaskValidationError {
+    #[error("{task_kind} task field `{field}` is required")]
+    MissingField {
+        task_kind: &'static str,
+        field: &'static str,
+    },
+
+    #[error("{task_kind} task field `{field}` is invalid: {message}")]
+    InvalidField {
+        task_kind: &'static str,
+        field: String,
+        message: String,
+    },
+
+    #[error("{task_kind} task is invalid: {message}")]
+    InvalidTask {
+        task_kind: &'static str,
+        message: String,
+    },
+}
+
+pub trait TaskDataSpec: Into<TaskData> {
+    fn validate(&self) -> Result<(), TaskValidationError>;
+}
+
+/// Associates a user-side task with its transport data and structured details.
 pub trait TaskSpec: Into<Task> {
+    type Data: TaskDataSpec;
     type Details;
+
+    fn resolve(self, context: &Table) -> Result<Self::Data, TaskValidationError>;
 
     fn try_from_details(details: TaskDetails) -> Option<Self::Details>;
 
@@ -182,7 +335,12 @@ pub trait TaskSpec: Into<Task> {
 }
 
 impl TaskSpec for Task {
+    type Data = TaskData;
     type Details = TaskDetails;
+
+    fn resolve(self, context: &Table) -> Result<Self::Data, TaskValidationError> {
+        self.resolve(context)
+    }
 
     fn try_from_details(details: TaskDetails) -> Option<Self::Details> {
         Some(details)
@@ -193,12 +351,17 @@ impl TaskSpec for Task {
     }
 }
 
+impl TaskDataSpec for TaskData {
+    fn validate(&self) -> Result<(), TaskValidationError> {
+        self.validate()
+    }
+}
+
 /// Task-specific details returned by the executor.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TaskDetails {
     File(FileDetails),
-    Template(TemplateDetails),
     Command(CommandDetails),
     Copy(CopyDetails),
     Download(DownloadDetails),
@@ -214,7 +377,6 @@ impl TaskDetails {
     pub fn kind(&self) -> &'static str {
         match self {
             Self::File(_) => "file",
-            Self::Template(_) => "template",
             Self::Command(_) => "command",
             Self::Copy(_) => "copy",
             Self::Download(_) => "download",
@@ -263,6 +425,60 @@ impl fmt::Display for TaskStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
+}
+
+pub(crate) fn missing_field(task_kind: &'static str, field: &'static str) -> TaskValidationError {
+    TaskValidationError::MissingField { task_kind, field }
+}
+
+pub(crate) fn invalid_field(
+    task_kind: &'static str, field: impl Into<String>, message: impl Into<String>,
+) -> TaskValidationError {
+    TaskValidationError::InvalidField {
+        task_kind,
+        field: field.into(),
+        message: message.into(),
+    }
+}
+
+pub(crate) fn invalid_task(
+    task_kind: &'static str, message: impl Into<String>,
+) -> TaskValidationError {
+    TaskValidationError::InvalidTask {
+        task_kind,
+        message: message.into(),
+    }
+}
+
+pub(crate) fn resolve_required<T>(
+    task_kind: &'static str, field: &'static str, value: Field<T>, context: &Table,
+) -> Result<T, TaskValidationError>
+where
+    T: ResolveValue,
+{
+    resolve_optional(task_kind, field, value, context)?
+        .ok_or_else(|| missing_field(task_kind, field))
+}
+
+pub(crate) fn resolve_optional<T>(
+    task_kind: &'static str, field: &'static str, value: Field<T>, context: &Table,
+) -> Result<Option<T>, TaskValidationError>
+where
+    T: ResolveValue,
+{
+    value
+        .resolve(context)
+        .map_err(|error| invalid_field(task_kind, field, error.to_string()))
+}
+
+pub(crate) fn resolve_or_default<T>(
+    task_kind: &'static str, field: &'static str, value: Field<T>, context: &Table,
+    default: impl FnOnce() -> T,
+) -> Result<T, TaskValidationError>
+where
+    T: ResolveValue,
+{
+    Ok(resolve_optional(task_kind, field, value, context)?.unwrap_or_else(default))
 }
 
 impl<D> TaskResult<D> {
