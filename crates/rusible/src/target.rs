@@ -6,7 +6,9 @@ use crate::{
         validate_remote_exec,
     },
     inventory::Inventory,
-    meta::{TaskData, TaskDataSpec, TaskDetails, TaskRequest, TaskResult, TaskSpec, TaskStatus},
+    meta::{
+        Field, TaskData, TaskDataSpec, TaskDetails, TaskRequest, TaskResult, TaskSpec, TaskStatus,
+    },
     report::{
         BatchRunError, BatchRunReport, LocalRunError, LocalRunReport, RemoteRunError,
         RemoteRunReport, RuntimeError, classify_report,
@@ -17,7 +19,6 @@ use crate::{
         remove_table_path, set_table_path,
     },
 };
-use rusible_template::{ResolveTemplate, TemplatedPath};
 use std::{
     backtrace::Backtrace,
     path::{Path, PathBuf},
@@ -182,18 +183,12 @@ impl Remote {
 
     /// Uploads a local file from the controller to a path on the remote host.
     pub async fn upload_file(
-        &self, local_path: impl Into<TemplatedPath>, remote_path: impl Into<TemplatedPath>,
+        &self, local_path: impl Into<Field<PathBuf>>, remote_path: impl Into<Field<PathBuf>>,
         options: UploadOptions,
     ) -> Result<UploadReport, RuntimeError> {
         let context = self.build_context(None, None);
-        let local_path = local_path
-            .into()
-            .resolve(&context)
-            .map_err(RuntimeError::from)?;
-        let remote_path = remote_path
-            .into()
-            .resolve(&context)
-            .map_err(RuntimeError::from)?;
+        let local_path = resolve_upload_path(local_path.into(), "local_path", &context)?;
+        let remote_path = resolve_upload_path(remote_path.into(), "remote_path", &context)?;
         let upload_span = info_span!(
             "UPLOAD",
             host = %self.host,
@@ -208,13 +203,10 @@ impl Remote {
 
     /// Uploads controller-provided bytes to a path on the remote host.
     pub async fn upload_bytes(
-        &self, remote_path: impl Into<TemplatedPath>, bytes: &[u8], options: UploadOptions,
+        &self, remote_path: impl Into<Field<PathBuf>>, bytes: &[u8], options: UploadOptions,
     ) -> Result<UploadReport, RuntimeError> {
         let context = self.build_context(None, None);
-        let remote_path = remote_path
-            .into()
-            .resolve(&context)
-            .map_err(RuntimeError::from)?;
+        let remote_path = resolve_upload_path(remote_path.into(), "remote_path", &context)?;
         let upload_span = info_span!(
             "UPLOAD",
             host = %self.host,
@@ -232,6 +224,17 @@ impl Remote {
             bytes_written: bytes.len(),
         })
     }
+}
+
+pub(crate) fn resolve_upload_path(
+    path: Field<PathBuf>, field: &'static str, context: &Table,
+) -> Result<PathBuf, RuntimeError> {
+    path.resolve(context)
+        .map_err(RuntimeError::from)?
+        .ok_or_else(|| RuntimeError::TaskValidation {
+            message: format!("upload field `{field}` is required"),
+            backtrace: Backtrace::capture(),
+        })
 }
 
 impl Runnable for Local {
@@ -590,9 +593,12 @@ mod tests {
         remote.set_var("etcd.cert_dir", "/tmp/certs").unwrap();
 
         let context = remote.build_context(None, Some("web-1"));
-        let rendered = TemplatedPath::new("{{ etcd.cert_dir }}/{{ rusible.host.name }}.crt")
-            .resolve(&context)
-            .unwrap();
+        let rendered = resolve_upload_path(
+            Field::tpl("{{ etcd.cert_dir }}/{{ rusible.host.name }}.crt"),
+            "remote_path",
+            &context,
+        )
+        .unwrap();
 
         assert_eq!(rendered, PathBuf::from("/tmp/certs/web-1.crt"));
     }
@@ -602,13 +608,13 @@ mod tests {
         let remote = Remote::new("10.0.0.11", 22, "root", None, None);
         let context = remote.build_context(None, Some("web-1"));
 
-        let error = TemplatedPath::new("{{ missing.value }}/server.crt")
+        let error = Field::<PathBuf>::tpl("{{ missing.value }}/server.crt")
             .resolve(&context)
             .unwrap_err();
 
         assert!(matches!(
             error,
-            rusible_template::TemplateError::Render { .. }
+            crate::meta::ResolveValueError::Template(crate::meta::TemplateError::Render { .. })
         ));
     }
 }

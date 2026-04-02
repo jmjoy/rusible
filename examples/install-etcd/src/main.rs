@@ -1,6 +1,6 @@
 use anyhow::bail;
 use rusible::{
-    Field, TemplatedPath, UploadOptions, VarLookupError, init_forest_logging,
+    Field, UploadOptions, VarLookupError, init_forest_logging,
     inventory::{Host, Inventory},
     meta::{
         CommandTask, CopyTask, DownloadTask, FileState, FileTask, ShellTask, StatTask,
@@ -301,10 +301,10 @@ async fn install_etcd_runtime(
     local
         .run(DownloadTask {
             name: "Download etcd release archive".into(),
-            url: format!(
+            url: Field::val(format!(
                 "https://github.com/etcd-io/etcd/releases/download/{version}/etcd-{version}-linux-amd64.tar.gz"
             )
-            .into(),
+            .parse()?),
             dest: local_archive_path.clone().into(),
             force: false.into(),
             mode: "0644".into(),
@@ -353,8 +353,8 @@ async fn install_etcd_runtime(
 async fn distribute_certificates(inventory: &Inventory) -> anyhow::Result<()> {
     inventory
         .upload_file(
-            TemplatedPath::new("{{ etcd.local_cert_dir }}/ca.crt"),
-            TemplatedPath::new("{{ etcd.remote_ssl_dir }}/ca.crt"),
+            Field::tpl("{{ etcd.local_cert_dir }}/ca.crt"),
+            Field::tpl("{{ etcd.remote_ssl_dir }}/ca.crt"),
             UploadOptions {
                 owner: Some("etcd".to_string()),
                 group: Some("etcd".to_string()),
@@ -365,8 +365,8 @@ async fn distribute_certificates(inventory: &Inventory) -> anyhow::Result<()> {
 
     inventory
         .upload_file(
-            TemplatedPath::new("{{ etcd.local_cert_dir }}/{{ rusible.host.name }}.crt"),
-            TemplatedPath::new("{{ etcd.remote_ssl_dir }}/server.crt"),
+            Field::tpl("{{ etcd.local_cert_dir }}/{{ rusible.host.name }}.crt"),
+            Field::tpl("{{ etcd.remote_ssl_dir }}/server.crt"),
             UploadOptions {
                 owner: Some("etcd".to_string()),
                 group: Some("etcd".to_string()),
@@ -377,8 +377,8 @@ async fn distribute_certificates(inventory: &Inventory) -> anyhow::Result<()> {
 
     inventory
         .upload_file(
-            TemplatedPath::new("{{ etcd.local_cert_dir }}/{{ rusible.host.name }}.key"),
-            TemplatedPath::new("{{ etcd.remote_ssl_dir }}/server.key"),
+            Field::tpl("{{ etcd.local_cert_dir }}/{{ rusible.host.name }}.key"),
+            Field::tpl("{{ etcd.remote_ssl_dir }}/server.key"),
             UploadOptions {
                 owner: Some("etcd".to_string()),
                 group: Some("etcd".to_string()),

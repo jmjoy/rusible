@@ -1,5 +1,7 @@
-use crate::meta::{TaskDetails, TaskResult, TaskSpec, TaskStatus, TaskValidationError};
-use rusible_template::TemplateError;
+use crate::meta::{
+    ResolveValueError, TaskDetails, TaskResult, TaskSpec, TaskStatus, TaskValidationError,
+    TemplateError,
+};
 use std::{backtrace::Backtrace, path::PathBuf};
 
 /// Result of a task run on the local controller.
@@ -14,6 +16,18 @@ impl From<TemplateError> for RuntimeError {
         Self::TemplateRender {
             message: source.to_string(),
             backtrace: Backtrace::capture(),
+        }
+    }
+}
+
+impl From<ResolveValueError> for RuntimeError {
+    fn from(source: ResolveValueError) -> Self {
+        match source {
+            ResolveValueError::Template(source) => Self::from(source),
+            ResolveValueError::Parse { .. } => Self::TaskValidation {
+                message: source.to_string(),
+                backtrace: Backtrace::capture(),
+            },
         }
     }
 }

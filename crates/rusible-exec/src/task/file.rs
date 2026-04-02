@@ -112,9 +112,11 @@ async fn ensure_file(task: &FileTaskData) -> Result<TaskResult, Error> {
     let mut changes = FileChangeSummary::default();
 
     if let Some(parent) = task.path.parent()
-        && !parent.as_os_str().is_empty() && !fs::try_exists(parent).await? {
-            fs::create_dir_all(parent).await?;
-        }
+        && !parent.as_os_str().is_empty()
+        && !fs::try_exists(parent).await?
+    {
+        fs::create_dir_all(parent).await?;
+    }
 
     if !fs::try_exists(&task.path).await? {
         OpenOptions::new()
@@ -160,9 +162,11 @@ async fn ensure_touch(task: &FileTaskData) -> Result<TaskResult, Error> {
     let existed = fs::try_exists(&task.path).await?;
 
     if let Some(parent) = task.path.parent()
-        && !parent.as_os_str().is_empty() && !fs::try_exists(parent).await? {
-            fs::create_dir_all(parent).await?;
-        }
+        && !parent.as_os_str().is_empty()
+        && !fs::try_exists(parent).await?
+    {
+        fs::create_dir_all(parent).await?;
+    }
 
     let status = Command::new("touch").arg(&task.path).status().await?;
     if !status.success() {

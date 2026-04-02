@@ -11,9 +11,11 @@ pub(crate) async fn execute(task: &CopyTaskData) -> Result<TaskResult, Error> {
     let source = fs::read(&src).await?;
 
     if let Some(parent) = dest.parent()
-        && !parent.as_os_str().is_empty() && !fs::try_exists(parent).await? {
-            fs::create_dir_all(parent).await?;
-        }
+        && !parent.as_os_str().is_empty()
+        && !fs::try_exists(parent).await?
+    {
+        fs::create_dir_all(parent).await?;
+    }
 
     match fs::read(&dest).await {
         Ok(current) => {

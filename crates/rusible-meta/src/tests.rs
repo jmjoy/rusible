@@ -1,6 +1,7 @@
 use super::*;
 use std::path::PathBuf;
 use toml::Table;
+use url::Url;
 
 #[test]
 fn task_resolves_into_task_data() {
@@ -117,21 +118,16 @@ fn task_result_with_details_round_trips_as_json() {
 }
 
 #[test]
-fn template_path_round_trips_as_json() {
-    let literal = TemplatedPath::from(PathBuf::from("/tmp/example"));
-    let templated = TemplatedPath::new("{{ app.dir }}/example");
+fn field_resolves_templated_pathbuf() {
+    let context = toml::toml! {
+        app = { dir = "/tmp" }
+    };
 
-    let literal_json = serde_json::to_string(&literal).unwrap();
-    let templated_json = serde_json::to_string(&templated).unwrap();
+    let resolved = Field::<PathBuf>::tpl("{{ app.dir }}/example")
+        .resolve(&context)
+        .unwrap();
 
-    assert_eq!(
-        serde_json::from_str::<TemplatedPath>(&literal_json).unwrap(),
-        literal
-    );
-    assert_eq!(
-        serde_json::from_str::<TemplatedPath>(&templated_json).unwrap(),
-        templated
-    );
+    assert_eq!(resolved, Some(PathBuf::from("/tmp/example")));
 }
 
 #[test]
@@ -177,7 +173,7 @@ fn task_result_with_command_details_round_trips_as_json() {
 fn task_result_with_download_details_round_trips_as_json() {
     let result = TaskResult::changed("downloaded file").with_details(TaskDetails::Download(
         DownloadDetails {
-            url: "https://example.com/archive.tar.gz".to_string(),
+            url: Url::parse("https://example.com/archive.tar.gz").unwrap(),
             dest: PathBuf::from("/tmp/archive.tar.gz"),
             downloaded: true,
             bytes_written: 42,

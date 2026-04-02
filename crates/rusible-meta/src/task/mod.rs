@@ -20,7 +20,7 @@ pub use unarchive::{UnarchiveDetails, UnarchiveTask, UnarchiveTaskData};
 pub use user::{UserDetails, UserTask, UserTaskData};
 pub use wait_for::{WaitForDetails, WaitForTask, WaitForTaskData};
 
-use rusible_template::{Field, ResolveValue};
+use crate::{Field, ResolveValue};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use toml::Table;

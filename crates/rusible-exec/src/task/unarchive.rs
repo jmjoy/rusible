@@ -5,22 +5,23 @@ use tokio::{fs, process::Command};
 
 pub(crate) async fn execute(task: &UnarchiveTaskData) -> Result<TaskResult, Error> {
     if let Some(creates) = task.creates.as_deref()
-        && fs::try_exists(creates).await? {
-            return Ok(TaskResult {
-                status: TaskStatus::Skipped,
-                message: Some(format!(
-                    "archive {} not extracted because {} already exists",
-                    task.src.display(),
-                    creates.display()
-                )),
-                details: Some(TaskDetails::Unarchive(UnarchiveDetails {
-                    src: task.src.clone(),
-                    dest: task.dest.clone(),
-                    extracted: false,
-                    creates: task.creates.clone(),
-                })),
-            });
-        }
+        && fs::try_exists(creates).await?
+    {
+        return Ok(TaskResult {
+            status: TaskStatus::Skipped,
+            message: Some(format!(
+                "archive {} not extracted because {} already exists",
+                task.src.display(),
+                creates.display()
+            )),
+            details: Some(TaskDetails::Unarchive(UnarchiveDetails {
+                src: task.src.clone(),
+                dest: task.dest.clone(),
+                extracted: false,
+                creates: task.creates.clone(),
+            })),
+        });
+    }
 
     fs::create_dir_all(&task.dest).await?;
 

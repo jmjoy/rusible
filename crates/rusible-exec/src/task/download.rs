@@ -7,16 +7,17 @@ pub(crate) async fn execute(task: &DownloadTaskData) -> Result<TaskResult, Error
     let dest = task.dest.clone();
 
     if let Some(parent) = dest.parent()
-        && !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent).await?;
-        }
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent).await?;
+    }
 
     let destination_exists = fs::try_exists(&dest).await?;
     let mut downloaded = false;
     let mut bytes_written = 0;
 
     if task.force || !destination_exists {
-        let response = reqwest::get(task.url.as_str()).await?.error_for_status()?;
+        let response = reqwest::get(task.url.clone()).await?.error_for_status()?;
         let body = response.bytes().await?;
         bytes_written = body.len() as u64;
 
@@ -75,6 +76,7 @@ mod tests {
         thread,
         time::{SystemTime, UNIX_EPOCH},
     };
+    use url::Url;
 
     #[tokio::test(flavor = "current_thread")]
     async fn download_task_fetches_content() {
@@ -83,7 +85,7 @@ mod tests {
 
         let result = execute(&DownloadTaskData {
             name: None,
-            url,
+            url: Url::parse(&url).unwrap(),
             dest: destination.clone(),
             force: false,
             owner: None,
@@ -116,7 +118,7 @@ mod tests {
 
         let result = execute(&DownloadTaskData {
             name: None,
-            url,
+            url: Url::parse(&url).unwrap(),
             dest: destination.clone(),
             force: false,
             owner: None,
@@ -149,7 +151,7 @@ mod tests {
 
         let result = execute(&DownloadTaskData {
             name: None,
-            url: "http://127.0.0.1:9/unused".to_string(),
+            url: Url::parse("http://127.0.0.1:9/unused").unwrap(),
             dest: destination.clone(),
             force: false,
             owner: None,

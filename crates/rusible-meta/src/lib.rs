@@ -1,8 +1,9 @@
 //! Serializable task definitions shared between the controller and executor.
 
+pub mod field;
 mod task;
 
-pub use rusible_template::{Field, TemplatedPath, TemplatedString, TemplatedUrl};
+pub use field::{Field, ResolveValue, ResolveValueError, TemplateError, render_string};
 pub use task::{
     CommandDetails, CommandTask, CommandTaskData, CopyDetails, CopyTask, CopyTaskData,
     DownloadDetails, DownloadTask, DownloadTaskData, FileDetails, FileState, FileTask,

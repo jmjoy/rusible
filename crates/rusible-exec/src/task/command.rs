@@ -7,40 +7,42 @@ pub(crate) async fn execute(task: &CommandTaskData) -> Result<TaskResult, Error>
     let argv = task.argv.clone();
 
     if let Some(path) = task.creates.as_deref()
-        && fs::try_exists(path).await? {
-            return Ok(task_result(
-                TaskStatus::Skipped,
-                format!(
-                    "command not run because creates path {} already exists",
-                    path.display()
-                ),
-                CommandDetails {
-                    cmd: argv.clone(),
-                    chdir: task.chdir.clone(),
-                    rc: None,
-                    stdout: String::new(),
-                    stderr: String::new(),
-                },
-            ));
-        }
+        && fs::try_exists(path).await?
+    {
+        return Ok(task_result(
+            TaskStatus::Skipped,
+            format!(
+                "command not run because creates path {} already exists",
+                path.display()
+            ),
+            CommandDetails {
+                cmd: argv.clone(),
+                chdir: task.chdir.clone(),
+                rc: None,
+                stdout: String::new(),
+                stderr: String::new(),
+            },
+        ));
+    }
 
     if let Some(path) = task.removes.as_deref()
-        && !fs::try_exists(path).await? {
-            return Ok(task_result(
-                TaskStatus::Skipped,
-                format!(
-                    "command not run because removes path {} is already absent",
-                    path.display()
-                ),
-                CommandDetails {
-                    cmd: argv.clone(),
-                    chdir: task.chdir.clone(),
-                    rc: None,
-                    stdout: String::new(),
-                    stderr: String::new(),
-                },
-            ));
-        }
+        && !fs::try_exists(path).await?
+    {
+        return Ok(task_result(
+            TaskStatus::Skipped,
+            format!(
+                "command not run because removes path {} is already absent",
+                path.display()
+            ),
+            CommandDetails {
+                cmd: argv.clone(),
+                chdir: task.chdir.clone(),
+                rc: None,
+                stdout: String::new(),
+                stderr: String::new(),
+            },
+        ));
+    }
 
     let mut command = Command::new(&argv[0]);
     command
@@ -74,9 +76,10 @@ pub(crate) async fn execute(task: &CommandTaskData) -> Result<TaskResult, Error>
     };
 
     if let Some(stdin) = &task.stdin
-        && let Some(mut child_stdin) = child.stdin.take() {
-            child_stdin.write_all(stdin.as_bytes()).await?;
-        }
+        && let Some(mut child_stdin) = child.stdin.take()
+    {
+        child_stdin.write_all(stdin.as_bytes()).await?;
+    }
 
     let output = child.wait_with_output().await?;
     let rc = output.status.code();

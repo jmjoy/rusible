@@ -12,9 +12,9 @@ readme = "README.md"
 clap = { workspace = true }
 reqwest = { workspace = true, features = ["rustls-tls"] }
 rusible-meta = { workspace = true }
-rusible-template = { workspace = true }
 serde_json = { workspace = true }
 shlex = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt", "time"] }
 toml = { workspace = true }
+url = { workspace = true }

@@ -2,7 +2,7 @@ use super::{
     TaskDataSpec, TaskDetails, TaskSpec, TaskValidationError, invalid_field, invalid_task,
     missing_field, resolve_optional,
 };
-use rusible_template::Field;
+use crate::Field;
 use serde::{Deserialize, Serialize};
 use shlex::split;
 use std::path::PathBuf;

@@ -2300,7 +2300,6 @@ version = "0.1.0"
 dependencies = [
  "ansi_term",
  "rusible-meta",
- "rusible-template",
  "russh",
  "russh-sftp",
  "serde",
@@ -2322,34 +2321,25 @@ dependencies = [
  "clap",
  "reqwest",
  "rusible-meta",
- "rusible-template",
  "serde_json",
  "shlex",
  "thiserror 2.0.12",
  "tokio",
  "toml",
+ "url",
 ]
 
 [[package]]
 name = "rusible-meta"
 version = "0.1.0"
 dependencies = [
- "rusible-template",
+ "minijinja",
  "serde",
  "serde_json",
  "shlex",
  "thiserror 2.0.12",
  "toml",
-]
-
-[[package]]
-name = "rusible-template"
-version = "0.1.0"
-dependencies = [
- "minijinja",
- "serde",
- "thiserror 2.0.12",
- "toml",
+ "url",
 ]
 
 [[package]]
@@ -3239,6 +3229,7 @@ dependencies = [
  "idna",
  "percent-encoding",
  "serde",
+ "serde_derive",
 ]
 
 [[package]]

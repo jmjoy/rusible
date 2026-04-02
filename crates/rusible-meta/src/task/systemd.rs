@@ -2,7 +2,7 @@ use super::{
     TaskDataSpec, TaskDetails, TaskSpec, TaskValidationError, invalid_field, resolve_optional,
     resolve_or_default, resolve_required,
 };
-use rusible_template::{Field, ResolveValue, ResolveValueError};
+use crate::{Field, ResolveValue, ResolveValueError};
 use serde::{Deserialize, Serialize};
 use toml::Table;
 
