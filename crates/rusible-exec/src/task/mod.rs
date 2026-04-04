@@ -1,6 +1,7 @@
 mod command;
 mod copy;
 mod download;
+mod facts;
 mod file;
 mod shell;
 mod stat;
@@ -20,6 +21,7 @@ pub(crate) async fn execute(request: TaskRequest) -> Result<TaskResult, Error> {
         TaskData::Command(task) => command::execute(&task).await,
         TaskData::Copy(task) => copy::execute(&task).await,
         TaskData::Download(task) => download::execute(&task).await,
+        TaskData::Facts(task) => facts::execute(&task).await,
         TaskData::Shell(task) => shell::execute(&task).await,
         TaskData::Stat(task) => stat::execute(&task).await,
         TaskData::User(task) => user::execute(&task).await,

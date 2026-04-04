@@ -16,7 +16,7 @@ host = "127.0.0.1"
 port = 2222
 user = "root"
 password = "123456"
-vars = { etcd = { name = "etcd-1", peer_host = "sshd-1", client_host = "sshd-1" } }
+vars = { etcd = { name = "etcd-1" } }
 groups = ["etcd"]
 
 [[hosts]]
@@ -25,7 +25,7 @@ host = "127.0.0.1"
 port = 2223
 user = "root"
 password = "123456"
-vars = { etcd = { name = "etcd-2", peer_host = "sshd-2", client_host = "sshd-2" } }
+vars = { etcd = { name = "etcd-2" } }
 groups = ["etcd"]
 
 [[hosts]]
@@ -34,5 +34,5 @@ host = "127.0.0.1"
 port = 2224
 user = "root"
 password = "123456"
-vars = { etcd = { name = "etcd-3", peer_host = "sshd-3", client_host = "sshd-3" } }
+vars = { etcd = { name = "etcd-3" } }
 groups = ["etcd"]

@@ -156,7 +156,7 @@ pub(crate) fn get_table_path_string(table: &Table, path: &str) -> Result<String,
 
 pub(crate) fn build_local_context(vars: &Table) -> Table {
     let mut context = vars.clone();
-    context.insert("rusible".to_string(), Value::Table(local_namespace()));
+    merge_reserved_namespace(&mut context, local_namespace());
     context
 }
 
@@ -166,11 +166,21 @@ pub(crate) fn build_remote_context(
 ) -> Table {
     let mut context = defaults.cloned().unwrap_or_default();
     merge_tables(&mut context, remote_vars);
-    context.insert(
-        "rusible".to_string(),
-        Value::Table(remote_namespace(host_name, host, port, user)),
-    );
+    merge_reserved_namespace(&mut context, remote_namespace(host_name, host, port, user));
     context
+}
+
+fn merge_reserved_namespace(context: &mut Table, reserved: Table) {
+    let mut rusible = match context.remove("rusible") {
+        Some(Value::Table(existing)) => existing,
+        _ => Table::new(),
+    };
+
+    for (key, value) in reserved {
+        rusible.insert(key, value);
+    }
+
+    context.insert("rusible".to_string(), Value::Table(rusible));
 }
 
 fn parse_path(path: &str) -> Result<Vec<&str>, VarError> {
@@ -256,6 +266,39 @@ mod tests {
 
         let removed = remove_table_path(&mut table, "app.name").unwrap();
         assert_eq!(removed.unwrap().as_str(), Some("rusible"));
+    }
+
+    #[test]
+    fn remote_context_preserves_rusible_facts_subtree() {
+        let mut vars = Table::new();
+        set_table_path(&mut vars, "rusible.facts.hostname", "node-1").unwrap();
+        set_table_path(&mut vars, "rusible.host.name", "stale-host").unwrap();
+
+        let context = build_remote_context(None, &vars, Some("web-1"), "10.0.0.11", 22, "root");
+
+        assert_eq!(
+            context["rusible"]["facts"]["hostname"].as_str(),
+            Some("node-1")
+        );
+        assert_eq!(context["rusible"]["host"]["name"].as_str(), Some("web-1"));
+        assert_eq!(
+            context["rusible"]["host"]["host"].as_str(),
+            Some("10.0.0.11")
+        );
+    }
+
+    #[test]
+    fn local_context_preserves_rusible_facts_subtree() {
+        let mut vars = Table::new();
+        set_table_path(&mut vars, "rusible.facts.hostname", "controller").unwrap();
+
+        let context = build_local_context(&vars);
+
+        assert_eq!(
+            context["rusible"]["facts"]["hostname"].as_str(),
+            Some("controller")
+        );
+        assert_eq!(context["rusible"]["target"]["kind"].as_str(), Some("local"));
     }
 
     #[test]

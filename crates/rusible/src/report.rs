@@ -1,7 +1,13 @@
-use crate::meta::{
-    field::{ResolveValueError, TemplateError},
-    task::{TaskDetails, TaskResult, TaskSpec, TaskStatus, TaskValidationError},
+use crate::{
+    inventory::Inventory,
+    meta::{
+        field::{ResolveValueError, TemplateError},
+        task::{TaskDetails, TaskResult, TaskSpec, TaskStatus, TaskValidationError},
+    },
+    target::{Local, Remote},
+    vars::VarError,
 };
+use serde::Serialize;
 use std::{backtrace::Backtrace, path::PathBuf};
 
 /// Result of a task run on the local controller.
@@ -52,6 +58,30 @@ pub struct RemoteRunReport<D = TaskDetails> {
 /// Aggregated results from multiple remote hosts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BatchRunReport<D = TaskDetails>(pub Vec<RemoteRunReport<D>>);
+
+/// Error returned when applying task details into template variables.
+#[derive(Debug, thiserror::Error)]
+pub enum ApplyVarsError {
+    #[error("task result does not contain details for variable `{key}`")]
+    MissingDetails { key: String },
+
+    #[error("failed to serialize task details for variable `{key}`: {source}")]
+    Serialize {
+        key: String,
+        #[source]
+        source: toml::ser::Error,
+    },
+
+    #[error("failed to set variable `{key}`: {source}")]
+    Var {
+        key: String,
+        #[source]
+        source: VarError,
+    },
+
+    #[error("batch report references unknown inventory host `{host}`")]
+    UnknownInventoryHost { host: String },
+}
 
 /// Infrastructure error returned while preparing or executing a run.
 #[derive(Debug, thiserror::Error)]
@@ -302,6 +332,18 @@ impl LocalRunReport<TaskDetails> {
     }
 }
 
+impl<D> LocalRunReport<D>
+where
+    D: Serialize,
+{
+    /// Stores this task's details into the provided local target variables.
+    pub fn apply_vars(
+        &self, local: &mut Local, key: impl AsRef<str>,
+    ) -> Result<(), ApplyVarsError> {
+        apply_result_to_local(local, key.as_ref(), &self.result)
+    }
+}
+
 impl RemoteRunReport<TaskDetails> {
     pub(crate) fn try_into_typed<T>(self) -> Result<RemoteRunReport<T::Details>, RuntimeError>
     where
@@ -317,6 +359,18 @@ impl RemoteRunReport<TaskDetails> {
     }
 }
 
+impl<D> RemoteRunReport<D>
+where
+    D: Serialize,
+{
+    /// Stores this task's details into the provided remote target variables.
+    pub fn apply_vars(
+        &self, remote: &mut Remote, key: impl AsRef<str>,
+    ) -> Result<(), ApplyVarsError> {
+        apply_result_to_remote(remote, key.as_ref(), &self.result)
+    }
+}
+
 impl BatchRunReport<TaskDetails> {
     pub(crate) fn try_into_typed<T>(self) -> Result<BatchRunReport<T::Details>, RuntimeError>
     where
@@ -328,6 +382,30 @@ impl BatchRunReport<TaskDetails> {
                 .map(RemoteRunReport::try_into_typed::<T>)
                 .collect::<Result<Vec<_>, _>>()?,
         ))
+    }
+}
+
+impl<D> BatchRunReport<D>
+where
+    D: Serialize,
+{
+    /// Stores each remote task's details into the matching inventory host
+    /// variables under the provided key.
+    pub fn apply_vars(
+        &self, inventory: &mut Inventory, key: impl AsRef<str>,
+    ) -> Result<(), ApplyVarsError> {
+        let key = key.as_ref();
+
+        for report in &self.0 {
+            let host = inventory.host_mut(&report.host).ok_or_else(|| {
+                ApplyVarsError::UnknownInventoryHost {
+                    host: report.host.clone(),
+                }
+            })?;
+            apply_result_to_remote(host.remote_mut(), key, &report.result)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -452,6 +530,55 @@ where
     })
 }
 
+fn apply_result_to_local<D>(
+    local: &mut Local, key: &str, result: &TaskResult<D>,
+) -> Result<(), ApplyVarsError>
+where
+    D: Serialize,
+{
+    let value = serialize_task_details(key, result)?;
+    local
+        .set_var(key, value)
+        .map_err(|source| ApplyVarsError::Var {
+            key: key.to_string(),
+            source,
+        })
+}
+
+fn apply_result_to_remote<D>(
+    remote: &mut Remote, key: &str, result: &TaskResult<D>,
+) -> Result<(), ApplyVarsError>
+where
+    D: Serialize,
+{
+    let value = serialize_task_details(key, result)?;
+    remote
+        .set_var(key, value)
+        .map_err(|source| ApplyVarsError::Var {
+            key: key.to_string(),
+            source,
+        })
+}
+
+fn serialize_task_details<D>(
+    key: &str, result: &TaskResult<D>,
+) -> Result<toml::Value, ApplyVarsError>
+where
+    D: Serialize,
+{
+    let details = result
+        .details
+        .as_ref()
+        .ok_or_else(|| ApplyVarsError::MissingDetails {
+            key: key.to_string(),
+        })?;
+
+    toml::Value::try_from(details).map_err(|source| ApplyVarsError::Serialize {
+        key: key.to_string(),
+        source,
+    })
+}
+
 fn format_local_report<D>(report: &LocalRunReport<D>) -> String {
     format_task_result(&report.result)
 }
@@ -492,6 +619,16 @@ fn format_task_result<D>(result: &TaskResult<D>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        inventory::Host,
+        target::{Local, Remote},
+    };
+    use serde::Serialize;
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    struct SampleDetails {
+        value: String,
+    }
 
     fn local_report(status: TaskStatus) -> LocalRunReport {
         LocalRunReport {
@@ -590,6 +727,149 @@ mod tests {
         assert!(matches!(
             result.into_report(),
             Err(RuntimeError::NotInitialized { .. })
+        ));
+    }
+
+    #[test]
+    fn local_report_apply_vars_stores_task_details_only() {
+        let report = LocalRunReport {
+            exec_path: PathBuf::from("/tmp/rusible-exec"),
+            result: TaskResult {
+                status: TaskStatus::Changed,
+                message: Some("updated".to_string()),
+                details: Some(SampleDetails {
+                    value: "hello".to_string(),
+                }),
+            },
+        };
+        let mut local = Local::new();
+
+        report.apply_vars(&mut local, "task.last_run").unwrap();
+
+        assert_eq!(
+            local.vars()["task"]["last_run"]["value"].as_str(),
+            Some("hello")
+        );
+    }
+
+    #[test]
+    fn remote_report_apply_vars_stores_task_details_only() {
+        let report = RemoteRunReport {
+            host: "node-1".to_string(),
+            exec_path: "/tmp/rusible-exec".to_string(),
+            result: TaskResult {
+                status: TaskStatus::Ok,
+                message: Some("done".to_string()),
+                details: Some(SampleDetails {
+                    value: "world".to_string(),
+                }),
+            },
+        };
+        let mut remote = Remote::new("127.0.0.1", 22, "root", None, None);
+
+        report.apply_vars(&mut remote, "task.report").unwrap();
+
+        assert_eq!(
+            remote.vars()["task"]["report"]["value"].as_str(),
+            Some("world")
+        );
+    }
+
+    #[test]
+    fn batch_report_apply_vars_maps_results_by_inventory_host() {
+        let mut inventory = Inventory::new()
+            .add_host(Host::with_remote(
+                "node-1",
+                Remote::new("127.0.0.1", 22, "root", None, None),
+            ))
+            .add_host(Host::with_remote(
+                "node-2",
+                Remote::new("127.0.0.1", 23, "root", None, None),
+            ));
+        let report = BatchRunReport(vec![
+            RemoteRunReport {
+                host: "node-1".to_string(),
+                exec_path: "/tmp/rusible-exec".to_string(),
+                result: TaskResult {
+                    status: TaskStatus::Ok,
+                    message: Some("first".to_string()),
+                    details: Some(SampleDetails {
+                        value: "one".to_string(),
+                    }),
+                },
+            },
+            RemoteRunReport {
+                host: "node-2".to_string(),
+                exec_path: "/tmp/rusible-exec".to_string(),
+                result: TaskResult {
+                    status: TaskStatus::Changed,
+                    message: Some("second".to_string()),
+                    details: Some(SampleDetails {
+                        value: "two".to_string(),
+                    }),
+                },
+            },
+        ]);
+
+        report.apply_vars(&mut inventory, "task.output").unwrap();
+
+        let node_1 = inventory
+            .hosts()
+            .iter()
+            .find(|host| host.name() == "node-1")
+            .unwrap();
+        let node_2 = inventory
+            .hosts()
+            .iter()
+            .find(|host| host.name() == "node-2")
+            .unwrap();
+
+        assert_eq!(
+            node_1.remote().vars()["task"]["output"]["value"].as_str(),
+            Some("one")
+        );
+        assert_eq!(
+            node_2.remote().vars()["task"]["output"]["value"].as_str(),
+            Some("two")
+        );
+    }
+
+    #[test]
+    fn batch_report_apply_vars_rejects_unknown_inventory_hosts() {
+        let mut inventory = Inventory::new();
+        let report = BatchRunReport(vec![RemoteRunReport {
+            host: "missing".to_string(),
+            exec_path: "/tmp/rusible-exec".to_string(),
+            result: TaskResult {
+                status: TaskStatus::Ok,
+                message: None,
+                details: Some(SampleDetails {
+                    value: "noop".to_string(),
+                }),
+            },
+        }]);
+
+        assert!(matches!(
+            report.apply_vars(&mut inventory, "task.output"),
+            Err(ApplyVarsError::UnknownInventoryHost { host }) if host == "missing"
+        ));
+    }
+
+    #[test]
+    fn apply_vars_rejects_reports_without_details() {
+        let report = LocalRunReport::<SampleDetails> {
+            exec_path: PathBuf::from("/tmp/rusible-exec"),
+            result: TaskResult {
+                status: TaskStatus::Ok,
+                message: Some("done".to_string()),
+                details: None,
+            },
+        };
+        let mut local = Local::new();
+
+        assert!(matches!(
+            report.apply_vars(&mut local, "task.output"),
+            Err(ApplyVarsError::MissingDetails { key }) if key == "task.output"
         ));
     }
 }

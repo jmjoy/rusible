@@ -12,6 +12,7 @@ repository = "https://github.com/jmjoy/rusible"
 ansi_term = "0.12.1"
 anyhow = "1.0.102"
 clap = { version = "4.5.40", features = ["derive"] }
+hostname = "0.4.2"
 minijinja = "2.12.0"
 reqwest = { version = "0.12.15", default-features = false }
 rusible = { path = "crates/rusible", version = "0.1.0" }

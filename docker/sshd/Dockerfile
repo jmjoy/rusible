@@ -1,38 +1,41 @@
 FROM ubuntu:24.04
 
 ENV container=docker
+ENV DEBIAN_FRONTEND=noninteractive
 
 STOPSIGNAL SIGRTMIN+3
 
-COPY .ssh/rusible_docker_root_ed25519.pub /tmp/rusible_docker_root_ed25519.pub
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    systemd \
+    systemd-sysv \
+    openssh-server \
+    ca-certificates \
+    curl \
+    dbus \
+    iproute2 \
+    iputils-ping \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        dbus \
-        iproute2 \
-        iputils-ping \
-        openssh-server \
-        systemd \
-        systemd-sysv \
-    && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /var/run/sshd /root/.ssh /etc/systemd/system/multi-user.target.wants \
-    && chmod 700 /root/.ssh \
-    && cat /tmp/rusible_docker_root_ed25519.pub > /root/.ssh/authorized_keys \
+RUN mkdir -p /etc/systemd/system/ssh.service.d \
+    && echo "[Service]\nRuntimeDirectory=sshd\nRuntimeDirectoryMode=0755" > /etc/systemd/system/ssh.service.d/override.conf
+
+COPY .ssh/rusible_docker_root_ed25519.pub /tmp/pubkey
+RUN mkdir -p /root/.ssh && chmod 700 /root/.ssh \
+    && cat /tmp/pubkey > /root/.ssh/authorized_keys \
     && chmod 600 /root/.ssh/authorized_keys \
-    && echo 'root:123456' | chpasswd \
-    && sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config \
-    && sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config \
+    && rm -f /tmp/pubkey \
+    && echo 'root:123456' | chpasswd
+
+RUN sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config \
     && sed -i 's/^#\?PubkeyAuthentication .*/PubkeyAuthentication yes/' /etc/ssh/sshd_config \
-    && sed -i 's/^#\?UsePAM .*/UsePAM yes/' /etc/ssh/sshd_config \
-    && ln -sf /lib/systemd/system/ssh.service /etc/systemd/system/multi-user.target.wants/ssh.service \
+    && sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
+RUN find /etc/systemd/system/multi-user.target.wants/ -type l -not -name 'ssh.service' -delete \
+    && rm -f /lib/systemd/system/multi-user.target.wants/getty.target \
     && rm -f /etc/systemd/system/getty.target.wants/* \
-    && rm -f /etc/systemd/system/sysinit.target.wants/systemd-tmpfiles-setup.service \
-    && rm -f /lib/systemd/system/multi-user.target.wants/* \
-    && ln -sf /lib/systemd/system/ssh.service /lib/systemd/system/multi-user.target.wants/ssh.service \
-    && truncate -s 0 /etc/machine-id \
-    && rm -f /tmp/rusible_docker_root_ed25519.pub
+    && systemctl enable ssh
+
+RUN truncate -s 0 /etc/machine-id
 
 EXPOSE 22
 

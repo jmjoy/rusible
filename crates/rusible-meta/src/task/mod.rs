@@ -3,6 +3,7 @@
 pub mod command;
 pub mod copy;
 pub mod download;
+pub mod facts;
 pub mod file;
 pub mod shell;
 pub mod stat;
@@ -15,6 +16,7 @@ use self::{
     command::{CommandDetails, CommandTask, CommandTaskData},
     copy::{CopyDetails, CopyTask, CopyTaskData},
     download::{DownloadDetails, DownloadTask, DownloadTaskData},
+    facts::{FactsDetails, FactsTask, FactsTaskData},
     file::{FileDetails, FileTask, FileTaskData},
     shell::{ShellDetails, ShellTask, ShellTaskData},
     stat::{StatDetails, StatTask, StatTaskData},
@@ -38,6 +40,8 @@ pub enum Task {
     Copy(CopyTask),
     /// Downloads a file from an HTTP(S) endpoint onto the target host.
     Download(DownloadTask),
+    /// Collects runtime facts from the target host.
+    Facts(FactsTask),
     /// Executes a command through the system shell.
     Shell(ShellTask),
     /// Collects file-system metadata for a path.
@@ -70,6 +74,8 @@ pub enum TaskData {
     Copy(CopyTaskData),
     /// Downloads a file from an HTTP(S) endpoint onto the target host.
     Download(DownloadTaskData),
+    /// Collects runtime facts from the target host.
+    Facts(FactsTaskData),
     /// Executes a command through the system shell.
     Shell(ShellTaskData),
     /// Collects file-system metadata for a path.
@@ -105,6 +111,12 @@ impl From<CopyTask> for Task {
 impl From<DownloadTask> for Task {
     fn from(task: DownloadTask) -> Self {
         Self::Download(task)
+    }
+}
+
+impl From<FactsTask> for Task {
+    fn from(task: FactsTask) -> Self {
+        Self::Facts(task)
     }
 }
 
@@ -151,6 +163,7 @@ impl Task {
             Self::Command(_) => "command",
             Self::Copy(_) => "copy",
             Self::Download(_) => "download",
+            Self::Facts(_) => "facts",
             Self::Shell(_) => "shell",
             Self::Stat(_) => "stat",
             Self::User(_) => "user",
@@ -166,6 +179,7 @@ impl Task {
             Self::Command(task) => task.resolve(context).map(TaskData::Command),
             Self::Copy(task) => task.resolve(context).map(TaskData::Copy),
             Self::Download(task) => task.resolve(context).map(TaskData::Download),
+            Self::Facts(task) => task.resolve(context).map(TaskData::Facts),
             Self::Shell(task) => task.resolve(context).map(TaskData::Shell),
             Self::Stat(task) => task.resolve(context).map(TaskData::Stat),
             Self::User(task) => task.resolve(context).map(TaskData::User),
@@ -197,6 +211,12 @@ impl From<CopyTaskData> for TaskData {
 impl From<DownloadTaskData> for TaskData {
     fn from(task: DownloadTaskData) -> Self {
         Self::Download(task)
+    }
+}
+
+impl From<FactsTaskData> for TaskData {
+    fn from(task: FactsTaskData) -> Self {
+        Self::Facts(task)
     }
 }
 
@@ -243,6 +263,7 @@ impl TaskData {
             Self::Command(_) => "command",
             Self::Copy(_) => "copy",
             Self::Download(_) => "download",
+            Self::Facts(_) => "facts",
             Self::Shell(_) => "shell",
             Self::Stat(_) => "stat",
             Self::User(_) => "user",
@@ -258,6 +279,7 @@ impl TaskData {
             Self::Command(task) => task.name.as_deref(),
             Self::Copy(task) => task.name.as_deref(),
             Self::Download(task) => task.name.as_deref(),
+            Self::Facts(task) => task.name.as_deref(),
             Self::Shell(task) => task.name.as_deref(),
             Self::Stat(task) => task.name.as_deref(),
             Self::User(task) => task.name.as_deref(),
@@ -277,6 +299,7 @@ impl TaskData {
             Self::Command(task) => task.validate(),
             Self::Copy(task) => task.validate(),
             Self::Download(task) => task.validate(),
+            Self::Facts(task) => task.validate(),
             Self::Shell(task) => task.validate(),
             Self::Stat(task) => task.validate(),
             Self::User(task) => task.validate(),
@@ -368,6 +391,7 @@ pub enum TaskDetails {
     Command(CommandDetails),
     Copy(CopyDetails),
     Download(DownloadDetails),
+    Facts(FactsDetails),
     Shell(ShellDetails),
     Stat(StatDetails),
     User(UserDetails),
@@ -383,6 +407,7 @@ impl TaskDetails {
             Self::Command(_) => "command",
             Self::Copy(_) => "copy",
             Self::Download(_) => "download",
+            Self::Facts(_) => "facts",
             Self::Shell(_) => "shell",
             Self::Stat(_) => "stat",
             Self::User(_) => "user",
@@ -694,6 +719,20 @@ mod tests {
                 bytes_written: 42,
                 mode_changed: false,
                 ownership_changed: false,
+            },
+        ));
+
+        let json = serde_json::to_string(&result).unwrap();
+        let decoded: TaskResult = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(decoded, result);
+    }
+
+    #[test]
+    fn task_result_with_facts_details_round_trips_as_json() {
+        let result = TaskResult::ok("collected host facts").with_details(TaskDetails::Facts(
+            facts::FactsDetails {
+                hostname: "node-1".to_string(),
             },
         ));
 

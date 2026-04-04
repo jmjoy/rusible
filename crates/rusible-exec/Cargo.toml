@@ -10,6 +10,7 @@ readme = "README.md"
 
 [dependencies]
 clap = { workspace = true }
+hostname = { workspace = true }
 reqwest = { workspace = true, features = ["rustls-tls"] }
 rusible-meta = { workspace = true }
 serde_json = { workspace = true }
