@@ -6,7 +6,7 @@ Rusible workspace.
 ## Responsibilities
 
 - define task payload types
-- define file, command, copy, unarchive, shell, stat, user, systemd, and wait-for task variants
+- define `file`, `command`, `copy`, `download`, `facts`, `shell`, `stat`, `user`, `systemd`, `unarchive`, and `wait_for` task variants
 - define structured execution result types
 
 This crate keeps the controller and executor aligned on the same wire format

@@ -8,8 +8,8 @@ The workspace is currently split into three crates:
 - `rusible-exec`: target-side executor binary that applies serialized tasks
 - `rusible-meta`: shared serializable task definitions used by both sides
 
-Currently supported tasks include file, command, copy, unarchive,
-shell, stat, user, systemd, and wait-for execution.
+Currently supported tasks include `file`, `command`, `copy`, `download`,
+`facts`, `shell`, `stat`, `user`, `systemd`, `unarchive`, and `wait_for`.
 
 ## Workspace layout
 
@@ -22,10 +22,12 @@ shell, stat, user, systemd, and wait-for execution.
 
 ## Development
 
-This workspace expects Cargo commands to run with `-Z bindeps`.
+This workspace uses the nightly toolchain and enables `bindeps` through
+`.cargo/config.toml`, so Cargo commands work from the repository root without
+passing `-Z bindeps` explicitly.
 
 ```bash
-cargo -Z bindeps check
+cargo check
 ```
 
 ## Runtime behavior

@@ -6,8 +6,8 @@
 
 - Use `Local` to run `delegate_to: localhost` style local tasks
 - Use an inventory TOML file or directory to select target hosts in the `etcd` group
-- Generate the CA and node certificates through local `shell` and `stat` tasks
-- Complete deployment through remote `user`, `file`, `copy`, `unarchive`, `systemd`, `wait_for`, and `command` tasks
+- Gather host facts with `facts`, then generate the CA and node certificates through local `shell` and `stat` tasks
+- Complete deployment through remote `user`, `file`, `copy`, `download`, `unarchive`, `systemd`, `wait_for`, and `command` tasks
 - Merge inventory-level variables and host-level variables into the rendering context for the systemd template
 
 ## Prerequisites
@@ -45,7 +45,7 @@ docker compose exec --index 1 sshd systemctl status ssh --no-pager
 ## Run
 
 ```bash
-cargo -Z bindeps run -p install-etcd
+cargo run -p install-etcd
 ```
 
 ## Inventory Format
