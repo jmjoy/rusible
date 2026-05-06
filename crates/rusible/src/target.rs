@@ -447,7 +447,7 @@ impl Runnable for Inventory {
         let init_span = info_span!("INIT", scope = "inventory", host_count);
         let _init_guard = init_span.enter();
 
-        for host in &mut self.hosts {
+        for host in self.hosts_mut() {
             host.remote.init(exec_bytes).await?;
         }
 
@@ -600,6 +600,7 @@ where
 mod tests {
     use super::*;
     use crate::meta::field::{ResolveValueError, TemplateError};
+    use toml::Value;
 
     #[test]
     fn template_path_renders_remote_context_values() {
@@ -629,6 +630,25 @@ mod tests {
         assert!(matches!(
             error,
             ResolveValueError::Template(TemplateError::Render { .. })
+        ));
+    }
+
+    #[test]
+    fn get_var_optional_reads_present_and_missing_values() {
+        let mut remote = Remote::new("10.0.0.11", 22, "root", None, None);
+        remote.set_var("etcd.name", "node-1").unwrap();
+        remote
+            .set_var("etcd.meta", Value::Table(Table::new()))
+            .unwrap();
+
+        assert_eq!(
+            remote.get_var_optional("etcd.name").unwrap(),
+            Some("node-1".to_string())
+        );
+        assert_eq!(remote.get_var_optional("etcd.peer_host").unwrap(), None);
+        assert!(matches!(
+            remote.get_var_optional("etcd.meta"),
+            Err(VarLookupError::TypeMismatch { .. })
         ));
     }
 }

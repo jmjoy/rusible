@@ -1,3 +1,4 @@
+use anyhow::Context as _;
 use rusible::{
     init_forest_logging,
     inventory::Inventory,
@@ -21,11 +22,13 @@ async fn main() -> anyhow::Result<()> {
         .filter_by_group("web");
 
     inventory.set_var("app.release", "2026.03")?;
-    inventory
-        .host_mut("ops-1")
-        .expect("ops-1 should exist in the example inventory")
-        .remote_mut()
-        .set_var("app.role", "ops-web")?;
+    let ops_host = inventory.host_mut("ops-1").with_context(|| {
+        format!(
+            "inventory {} is missing host `ops-1`",
+            inventory_path.display()
+        )
+    })?;
+    ops_host.remote_mut().set_var("app.role", "ops-web")?;
 
     eprintln!(
         "loaded inventory {} with {} selected hosts",
