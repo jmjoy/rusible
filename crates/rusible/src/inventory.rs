@@ -286,6 +286,11 @@ impl Inventory {
         &self.hosts
     }
 
+    /// Returns all hosts in their declared order for in-place mutation.
+    pub fn hosts_mut(&mut self) -> &mut [Host] {
+        &mut self.hosts
+    }
+
     /// Uploads a local controller file to selected hosts, rendering per-host
     /// template paths when requested.
     pub async fn upload_file(

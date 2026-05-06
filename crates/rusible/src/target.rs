@@ -165,6 +165,17 @@ impl Remote {
         get_table_path_string(&self.vars, path.as_ref())
     }
 
+    /// Returns a string variable by dotted path when present.
+    pub fn get_var_optional(
+        &self, path: impl AsRef<str>,
+    ) -> Result<Option<String>, VarLookupError> {
+        match self.get_var(path) {
+            Ok(value) => Ok(Some(value)),
+            Err(VarLookupError::Missing { .. }) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Recursively merges variables into the remote target.
     pub fn merge_vars(&mut self, vars: Table) {
         merge_tables(&mut self.vars, &vars);

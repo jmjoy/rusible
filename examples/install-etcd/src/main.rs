@@ -1,4 +1,4 @@
-use anyhow::bail;
+use anyhow::{Context as _, bail};
 use rusible::{
     init_forest_logging,
     inventory::{Host, Inventory},
@@ -21,7 +21,6 @@ use rusible::{
     runtime::Runnable as _,
     shell::{shell_quote, shell_quote_path},
     target::{Local, UploadOptions},
-    vars::VarLookupError,
 };
 use std::{
     env::temp_dir,
@@ -170,39 +169,24 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn hydrate_etcd_host_defaults(inventory: &mut Inventory) -> anyhow::Result<()> {
-    let host_names = inventory
-        .hosts()
-        .iter()
-        .map(|host| host.name().to_string())
-        .collect::<Vec<_>>();
-
-    for host_name in host_names {
-        let host = inventory
-            .host_mut(&host_name)
-            .expect("inventory host should exist while hydrating defaults");
-
-        let explicit_peer_host = optional_remote_var(host, "etcd.peer_host")?;
-        let facts_hostname = optional_remote_var(host, "rusible.facts.hostname")?;
-        let peer_host = explicit_peer_host.or(facts_hostname);
-        let peer_host = peer_host.ok_or_else(|| {
-            anyhow::anyhow!(
+    for host in inventory.hosts_mut() {
+        let explicit_peer_host = host.remote().get_var_optional("etcd.peer_host")?;
+        let facts_hostname = host.remote().get_var_optional("rusible.facts.hostname")?;
+        let client_host = host.remote().get_var_optional("etcd.client_host")?;
+        let peer_host = explicit_peer_host.clone().or(facts_hostname);
+        let peer_host = peer_host.with_context(|| {
+            format!(
                 "host `{}` is missing both `etcd.peer_host` and `rusible.facts.hostname`",
                 host.name()
             )
         })?;
 
-        if matches!(
-            host.remote().get_var("etcd.peer_host"),
-            Err(VarLookupError::Missing { .. })
-        ) {
+        if explicit_peer_host.is_none() {
             host.remote_mut()
                 .set_var("etcd.peer_host", peer_host.clone())?;
         }
 
-        if matches!(
-            host.remote().get_var("etcd.client_host"),
-            Err(VarLookupError::Missing { .. })
-        ) {
+        if client_host.is_none() {
             host.remote_mut().set_var("etcd.client_host", peer_host)?;
         }
     }
@@ -462,14 +446,6 @@ fn host_spec_from_inventory_host(host: &Host) -> anyhow::Result<EtcdHostSpec> {
         peer_host,
         client_host,
     })
-}
-
-fn optional_remote_var(host: &Host, path: &str) -> Result<Option<String>, VarLookupError> {
-    match host.remote().get_var(path) {
-        Ok(value) => Ok(Some(value)),
-        Err(VarLookupError::Missing { .. }) => Ok(None),
-        Err(error) => Err(error),
-    }
 }
 
 fn build_cert_sans(host: &EtcdHostSpec) -> String {
