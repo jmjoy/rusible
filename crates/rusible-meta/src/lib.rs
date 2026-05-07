@@ -1,4 +1,4 @@
-//! Serializable task definitions shared between the controller and executor.
+#![doc = include_str!("../README.md")]
 
 pub mod field;
 pub mod task;

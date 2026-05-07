@@ -1,3 +1,4 @@
+#![doc = include_str!("../README.md")]
 #![feature(error_generic_member_access)]
 
 //! Controller-side runtime for executing Rusible tasks locally or over SSH.
