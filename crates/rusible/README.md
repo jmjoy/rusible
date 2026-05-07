@@ -37,58 +37,8 @@ By default, `run(...)` returns `Err(...)` when a report contains `failed` or
 `RunResultExt` helpers such as `into_report`, `ignore_unreachable`, and
 `fail_on_skipped`.
 
-## Example
-
-```rust
-use rusible::{
-    init_forest_logging,
-    meta::{
-        field::Field,
-        task::file::{FileState, FileTask},
-    },
-    runtime::Runnable as _,
-    target::Remote,
-};
-use std::path::PathBuf;
-use toml::toml;
-
-const RUSIBLE_EXEC_BYTES: &[u8] = include_bytes!(env!("CARGO_BIN_FILE_RUSIBLE_EXEC"));
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    init_forest_logging("info,rusible=debug");
-
-    let mut remote = Remote::new_with_vars(
-        "127.0.0.1",
-        2222,
-        "root",
-        Some("123456".into()),
-        None,
-        toml! {
-            [app]
-            name = "rusible"
-        },
-    );
-
-    remote.init(RUSIBLE_EXEC_BYTES).await?;
-
-    remote
-        .run(FileTask {
-            name: "Render hello file".into(),
-            path: PathBuf::from("/tmp/hello.txt").into(),
-            state: FileState::File.into(),
-            content: Field::tpl("hello from {{ app.name }}\n"),
-            mode: "0644".into(),
-            ..Default::default()
-        })
-        .await?;
-
-    Ok(())
-}
-```
-
-For a larger inventory-driven example, see `examples/hello-inventory` in the
-workspace root.
+For end-to-end usage examples, see `examples/hello-world` and
+`examples/hello-inventory` in the workspace root.
 
 ## Inventory Support
 
